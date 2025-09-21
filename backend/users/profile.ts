@@ -1,4 +1,4 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import db from "../db";
 
@@ -9,7 +9,6 @@ interface UserProfile {
   lastName: string;
   phone?: string;
   city?: string;
-  state?: string;
   avatarUrl?: string;
   roles: string[];
   menus: Array<{
@@ -25,37 +24,40 @@ interface UserProfile {
   }>;
 }
 
-// Gets the current user's profile and menu access
-export const getProfile = api<void, UserProfile>(
-  { auth: true, expose: true, method: "GET", path: "/users/profile" },
-  async () => {
+export const getProfile = api(
+  { method: "GET", path: "/users/profile", expose: true, auth: true },
+  async (): Promise<UserProfile> => {
     const auth = getAuthData()!;
-    
-    const profile = await db.queryRow`
+    const userId = parseInt(auth.userID);
+
+    // Get user details
+    const user = await db.queryRow`
       SELECT 
-        u.id,
-        u.email,
-        u.first_name,
-        u.last_name,
-        u.phone,
-        u.city,
-        u.state,
-        u.avatar_url,
-        array_agg(DISTINCT r.name) as roles
-      FROM users u
-      LEFT JOIN user_roles ur ON u.id = ur.user_id
-      LEFT JOIN roles r ON ur.role_id = r.id
-      WHERE u.id = ${auth.userID}
-      GROUP BY u.id, u.email, u.first_name, u.last_name, u.phone, u.city, u.state, u.avatar_url
+        id, email, first_name, last_name, phone, city, avatar_url
+      FROM users 
+      WHERE id = ${userId} AND is_active = true
     `;
 
-    if (!profile) {
-      throw APIError.notFound("User not found");
+    if (!user) {
+      throw new Error("User not found");
     }
 
-    // Get accessible menus
-    const menuRows = await db.queryAll`
-      SELECT DISTINCT
+    // Get user roles
+    const rolesQuery = db.query`
+      SELECT r.name
+      FROM user_roles ur
+      JOIN roles r ON ur.role_id = r.id
+      WHERE ur.user_id = ${userId}
+    `;
+
+    const roles: string[] = [];
+    for await (const role of rolesQuery) {
+      roles.push(role.name);
+    }
+
+    // Get user menus
+    const menusQuery = db.query`
+      SELECT DISTINCT 
         m.name,
         m.display_name,
         m.icon,
@@ -63,54 +65,43 @@ export const getProfile = api<void, UserProfile>(
         m.parent_id,
         m.sort_order
       FROM menus m
-      JOIN role_menus rm ON m.id = rm.menu_id
-      JOIN roles r ON rm.role_id = r.id
-      JOIN user_roles ur ON r.id = ur.role_id
-      WHERE ur.user_id = ${auth.userID} AND m.is_active = true AND rm.can_view = true
+      INNER JOIN role_menus rm ON m.id = rm.menu_id
+      INNER JOIN user_roles ur ON rm.role_id = ur.role_id
+      WHERE ur.user_id = ${userId}
+      AND m.is_active = true 
+      AND rm.can_view = true
       ORDER BY m.sort_order, m.display_name
     `;
 
-    // Build menu hierarchy
     const menuMap = new Map();
-    const menus: any[] = [];
+    const rootMenus: any[] = [];
 
-    menuRows.forEach(row => {
-      const menu = {
-        name: row.name,
-        displayName: row.display_name,
-        icon: row.icon,
-        path: row.path,
+    for await (const menu of menusQuery) {
+      const menuItem = {
+        name: menu.name,
+        displayName: menu.display_name,
+        icon: menu.icon,
+        path: menu.path,
         children: []
       };
       
-      menuMap.set(row.name, menu);
+      menuMap.set(menu.name, menuItem);
       
-      if (!row.parent_id) {
-        menus.push(menu);
+      if (!menu.parent_id) {
+        rootMenus.push(menuItem);
       }
-    });
-
-    // Add child menus
-    menuRows.forEach(row => {
-      if (row.parent_id) {
-        const parent = Array.from(menuMap.values()).find((m: any) => m.name === row.parent_id);
-        if (parent) {
-          parent.children.push(menuMap.get(row.name));
-        }
-      }
-    });
+    }
 
     return {
-      id: profile.id,
-      email: profile.email,
-      firstName: profile.first_name,
-      lastName: profile.last_name,
-      phone: profile.phone,
-      city: profile.city,
-      state: profile.state,
-      avatarUrl: profile.avatar_url,
-      roles: profile.roles || [],
-      menus
+      id: user.id,
+      email: user.email,
+      firstName: user.first_name,
+      lastName: user.last_name,
+      phone: user.phone,
+      city: user.city,
+      avatarUrl: user.avatar_url,
+      roles,
+      menus: rootMenus
     };
   }
 );
