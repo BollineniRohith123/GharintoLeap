@@ -5,36 +5,19 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Search, Plus, Package, AlertTriangle, CheckCircle, Star, Edit, Eye, ShoppingCart } from 'lucide-react';
+import { Search, Plus, Package, AlertTriangle, CheckCircle } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import backend from '~backend/client';
-import type { Material, MaterialSearchRequest } from '~backend/materials/material_service';
 
 export default function MaterialsPage() {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
-  const [brandFilter, setBrandFilter] = useState('');
-  const [inStockOnly, setInStockOnly] = useState(false);
-  const [page, setPage] = useState(1);
-  const [limit] = useState(20);
   const { toast } = useToast();
 
-  const searchParams: MaterialSearchRequest = {
-    search: search || undefined,
-    category: categoryFilter || undefined,
-    brand: brandFilter || undefined,
-    in_stock_only: inStockOnly || undefined,
-    page,
-    limit,
-    sort_by: 'created_at',
-    sort_order: 'desc'
-  };
-
   const { data: materialsData, isLoading, error } = useQuery({
-    queryKey: ['materials', searchParams],
-    queryFn: () => backend.materials.searchMaterials(searchParams),
+    queryKey: ['materials'],
+    queryFn: () => backend.materials.listMaterials(),
   });
 
   const { data: stats } = useQuery({
@@ -47,9 +30,9 @@ export default function MaterialsPage() {
     queryFn: () => backend.materials.getCategories(),
   });
 
-  const getStockStatus = (material: Material) => {
+  const getStockStatus = (material: any) => {
     if (material.stock_quantity === 0) return 'out_of_stock';
-    if (material.stock_quantity <= material.min_order_quantity) return 'low_stock';
+    if (material.stock_quantity <= 10) return 'low_stock';
     return 'available';
   };
 
@@ -71,13 +54,13 @@ export default function MaterialsPage() {
     }
   };
 
-  const handleClearFilters = () => {
-    setSearch('');
-    setCategoryFilter('');
-    setBrandFilter('');
-    setInStockOnly(false);
-    setPage(1);
-  };
+  const filteredMaterials = materialsData?.materials?.filter(material => {
+    const matchesSearch = search === '' || 
+      material.name.toLowerCase().includes(search.toLowerCase()) ||
+      material.category.toLowerCase().includes(search.toLowerCase());
+    const matchesCategory = categoryFilter === '' || material.category === categoryFilter;
+    return matchesSearch && matchesCategory;
+  }) || [];
 
   if (error) {
     toast({
@@ -107,7 +90,7 @@ export default function MaterialsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Total Materials</p>
-                <p className="text-2xl font-bold">{stats?.total_materials?.toLocaleString() || 0}</p>
+                <p className="text-2xl font-bold">{stats?.total_materials || 0}</p>
               </div>
               <Package className="h-8 w-8 text-blue-500" />
             </div>
@@ -130,8 +113,8 @@ export default function MaterialsPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Low Stock</p>
-                <p className="text-2xl font-bold">{stats?.low_stock_count || 0}</p>
+                <p className="text-sm font-medium text-muted-foreground">Active Materials</p>
+                <p className="text-2xl font-bold">{stats?.active_materials || 0}</p>
               </div>
               <AlertTriangle className="h-8 w-8 text-yellow-500" />
             </div>
@@ -157,7 +140,7 @@ export default function MaterialsPage() {
           <CardTitle>Filters</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="relative">
               <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
@@ -180,24 +163,13 @@ export default function MaterialsPage() {
                 ))}
               </SelectContent>
             </Select>
-            <Input
-              placeholder="Filter by brand..."
-              value={brandFilter}
-              onChange={(e) => setBrandFilter(e.target.value)}
-            />
-            <div className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                id="inStockOnly"
-                checked={inStockOnly}
-                onChange={(e) => setInStockOnly(e.target.checked)}
-                className="rounded"
-              />
-              <label htmlFor="inStockOnly" className="text-sm font-medium">
-                In Stock Only
-              </label>
-            </div>
-            <Button variant="outline" onClick={handleClearFilters}>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setSearch('');
+                setCategoryFilter('');
+              }}
+            >
               Clear Filters
             </Button>
           </div>
@@ -207,21 +179,7 @@ export default function MaterialsPage() {
       {/* Materials Table */}
       <Card>
         <CardHeader>
-          <div className="flex justify-between items-center">
-            <CardTitle>Materials ({materialsData?.total?.toLocaleString() || 0})</CardTitle>
-            <div className="flex space-x-2">
-              {page > 1 && (
-                <Button variant="outline" size="sm" onClick={() => setPage(page - 1)}>
-                  Previous
-                </Button>
-              )}
-              {materialsData && page < materialsData.total_pages && (
-                <Button variant="outline" size="sm" onClick={() => setPage(page + 1)}>
-                  Next
-                </Button>
-              )}
-            </div>
-          </div>
+          <CardTitle>Materials ({filteredMaterials.length})</CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -240,7 +198,7 @@ export default function MaterialsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Material</TableHead>
-                  <TableHead>Vendor</TableHead>
+                  <TableHead>Category</TableHead>
                   <TableHead>Price</TableHead>
                   <TableHead>Stock</TableHead>
                   <TableHead>Status</TableHead>
@@ -248,7 +206,7 @@ export default function MaterialsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {materialsData?.materials?.map((material) => {
+                {filteredMaterials.map((material) => {
                   const stockStatus = getStockStatus(material);
                   const StockIcon = getStockIcon(stockStatus);
                   return (
@@ -256,60 +214,20 @@ export default function MaterialsPage() {
                       <TableCell>
                         <div>
                           <p className="font-medium">{material.name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {material.category}
-                            {material.brand && ` • ${material.brand}`}
-                            {material.model && ` (${material.model})`}
-                          </p>
+                          <p className="text-sm text-muted-foreground">ID: {material.id}</p>
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center space-x-3">
-                          <Avatar className="h-8 w-8">
-                            <AvatarFallback>
-                              {material.vendor?.company_name?.charAt(0) || 'V'}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <span className="font-medium">{material.vendor?.company_name}</span>
-                            {material.vendor?.is_verified && (
-                              <div className="flex items-center space-x-1">
-                                <CheckCircle className="h-3 w-3 text-green-500" />
-                                <span className="text-xs text-green-600">Verified</span>
-                              </div>
-                            )}
-                            {material.vendor?.rating && (
-                              <div className="flex items-center space-x-1">
-                                <Star className="h-3 w-3 text-yellow-500 fill-current" />
-                                <span className="text-xs">{material.vendor.rating.toFixed(1)}</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
+                        <Badge variant="outline">{material.category}</Badge>
                       </TableCell>
                       <TableCell>
                         <div>
                           <p className="font-medium">₹{material.price.toLocaleString()}</p>
-                          {material.discounted_price && material.discounted_price < material.price && (
-                            <p className="text-sm text-green-600">
-                              Sale: ₹{material.discounted_price.toLocaleString()}
-                            </p>
-                          )}
                           <p className="text-sm text-muted-foreground">per {material.unit}</p>
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div>
-                          <p className="font-medium">{material.stock_quantity} {material.unit}</p>
-                          <p className="text-sm text-muted-foreground">
-                            Min: {material.min_order_quantity}
-                          </p>
-                          {material.lead_time_days > 0 && (
-                            <p className="text-xs text-muted-foreground">
-                              Lead: {material.lead_time_days} days
-                            </p>
-                          )}
-                        </div>
+                        <p className="font-medium">{material.stock_quantity} {material.unit}</p>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center space-x-2">
@@ -324,16 +242,9 @@ export default function MaterialsPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex space-x-1">
-                          <Button variant="ghost" size="sm">
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="sm">
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="sm">
-                            <ShoppingCart className="h-4 w-4" />
-                          </Button>
+                        <div className="flex space-x-2">
+                          <Button variant="ghost" size="sm">View</Button>
+                          <Button variant="ghost" size="sm">Edit</Button>
                         </div>
                       </TableCell>
                     </TableRow>

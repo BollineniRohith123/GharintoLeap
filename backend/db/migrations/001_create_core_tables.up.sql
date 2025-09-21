@@ -59,7 +59,7 @@ CREATE TABLE user_roles (
 -- Menu System
 CREATE TABLE menus (
   id BIGSERIAL PRIMARY KEY,
-  name VARCHAR(100) NOT NULL,
+  name VARCHAR(100) NOT NULL UNIQUE,
   display_name VARCHAR(150) NOT NULL,
   icon VARCHAR(50),
   path VARCHAR(200),

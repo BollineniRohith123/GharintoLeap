@@ -1,7 +1,6 @@
 import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import db from "../db";
-import { AppError, withErrorHandling, safeAsync } from "../common/error_handler";
 
 export interface ProjectWorkflow {
   id: number;
@@ -68,10 +67,8 @@ export const createProjectWorkflows = api<{ project_id: number }, { workflows: P
   async ({ project_id }) => {
     const auth = getAuthData()!;
 
-    // Check if user can create workflows
-    if (!auth.permissions.includes('projects.manage') && !auth.permissions.includes('projects.edit')) {
-      throw APIError.forbidden("Access denied to create workflows");
-    }
+    // Check if user can create workflows (simplified check)
+    const userId = parseInt(auth.userID);
 
     // Verify project exists and user has access
     const project = await db.queryRow`
@@ -81,17 +78,15 @@ export const createProjectWorkflows = api<{ project_id: number }, { workflows: P
     `;
 
     if (!project) {
-      throw APIError.notFound("Project not found");
+      throw new Error("Project not found");
     }
 
-    const userId = parseInt(auth.userID);
     const hasAccess = project.client_id === userId || 
                      project.designer_id === userId || 
-                     project.project_manager_id === userId ||
-                     auth.permissions.includes('projects.manage');
+                     project.project_manager_id === userId;
 
     if (!hasAccess) {
-      throw APIError.forbidden("Access denied to this project");
+      throw new Error("Access denied to this project");
     }
 
     // Check if workflows already exist
@@ -99,8 +94,8 @@ export const createProjectWorkflows = api<{ project_id: number }, { workflows: P
       SELECT COUNT(*) as count FROM project_workflows WHERE project_id = ${project_id}
     `;
 
-    if (existingWorkflows?.count > 0) {
-      throw APIError.alreadyExists("Workflows already exist for this project");
+    if (existingWorkflows && parseInt(existingWorkflows.count) > 0) {
+      throw new Error("Workflows already exist for this project");
     }
 
     // Create workflows from template
@@ -153,16 +148,15 @@ export const getProjectWorkflows = api<{ project_id: number }, { workflows: Proj
     `;
 
     if (!project) {
-      throw APIError.notFound("Project not found");
+      throw new Error("Project not found");
     }
 
     const hasAccess = project.client_id === userId || 
                      project.designer_id === userId || 
-                     project.project_manager_id === userId ||
-                     auth.permissions.includes('projects.view');
+                     project.project_manager_id === userId;
 
     if (!hasAccess) {
-      throw APIError.forbidden("Access denied to this project");
+      throw new Error("Access denied to this project");
     }
 
     const workflowsQuery = db.query<ProjectWorkflow>`
@@ -204,7 +198,7 @@ export const updateWorkflow = api<UpdateWorkflowRequest, ProjectWorkflow>(
     `;
 
     if (!workflow) {
-      throw APIError.notFound("Workflow not found");
+      throw new Error("Workflow not found");
     }
 
     // Check if user can update this workflow
@@ -215,16 +209,15 @@ export const updateWorkflow = api<UpdateWorkflowRequest, ProjectWorkflow>(
     `;
 
     if (!project) {
-      throw APIError.notFound("Project not found");
+      throw new Error("Project not found");
     }
 
     const canUpdate = workflow.assigned_to === userId ||
                      project.designer_id === userId ||
-                     project.project_manager_id === userId ||
-                     auth.permissions.includes('projects.manage');
+                     project.project_manager_id === userId;
 
     if (!canUpdate) {
-      throw APIError.forbidden("Access denied to update this workflow");
+      throw new Error("Access denied to update this workflow");
     }
 
     // Build update query
@@ -254,18 +247,8 @@ export const updateWorkflow = api<UpdateWorkflowRequest, ProjectWorkflow>(
       params.push(req.notes);
     }
 
-    if (req.started_at !== undefined) {
-      updateFields.push(`started_at = $${paramIndex++}`);
-      params.push(req.started_at);
-    }
-
-    if (req.completed_at !== undefined) {
-      updateFields.push(`completed_at = $${paramIndex++}`);
-      params.push(req.completed_at);
-    }
-
     if (updateFields.length === 0) {
-      throw APIError.badRequest("No fields to update");
+      throw new Error("No fields to update");
     }
 
     updateFields.push(`updated_at = NOW()`);
@@ -281,7 +264,7 @@ export const updateWorkflow = api<UpdateWorkflowRequest, ProjectWorkflow>(
     const updatedWorkflow = await db.rawQueryRow<ProjectWorkflow>(updateQuery, ...params);
 
     if (!updatedWorkflow) {
-      throw APIError.internal("Failed to update workflow");
+      throw new Error("Failed to update workflow");
     }
 
     // Get assigned user name
@@ -301,124 +284,10 @@ export const updateWorkflow = api<UpdateWorkflowRequest, ProjectWorkflow>(
   }
 );
 
-export const assignWorkflow = api<{ 
-  workflow_id: number; 
-  assigned_to: number;
-}, ProjectWorkflow>(
-  { auth: true, expose: true, method: "POST", path: "/workflows/:workflow_id/assign" },
-  async ({ workflow_id, assigned_to }) => {
-    const auth = getAuthData()!;
-
-    // Check if user can assign workflows
-    if (!auth.permissions.includes('projects.manage')) {
-      throw APIError.forbidden("Access denied to assign workflows");
-    }
-
-    // Verify assignee exists
-    const assignee = await db.queryRow`
-      SELECT id, first_name, last_name FROM users WHERE id = ${assigned_to}
-    `;
-
-    if (!assignee) {
-      throw APIError.notFound("Assignee not found");
-    }
-
-    const updatedWorkflow = await db.queryRow<ProjectWorkflow>`
-      UPDATE project_workflows 
-      SET assigned_to = ${assigned_to}, updated_at = NOW()
-      WHERE id = ${workflow_id}
-      RETURNING *
-    `;
-
-    if (!updatedWorkflow) {
-      throw APIError.notFound("Workflow not found");
-    }
-
-    updatedWorkflow.assigned_to_name = `${assignee.first_name} ${assignee.last_name}`;
-
-    // Create notification for assignee
-    await db.exec`
-      INSERT INTO notifications (user_id, title, content, type, reference_type, reference_id)
-      VALUES (
-        ${assigned_to},
-        'New Workflow Assignment',
-        ${'You have been assigned to: ' + updatedWorkflow.stage},
-        'workflow_assignment',
-        'workflow',
-        ${workflow_id}
-      )
-    `;
-
-    return updatedWorkflow;
-  }
-);
-
 export const getWorkflowTemplate = api<void, { templates: WorkflowTemplate[] }>(
   { auth: true, expose: true, method: "GET", path: "/workflows/template" },
   async () => {
-    const auth = getAuthData()!;
-
-    // Check if user can view templates
-    if (!auth.permissions.includes('projects.view')) {
-      throw APIError.forbidden("Access denied to view workflow templates");
-    }
-
     return { templates: DEFAULT_WORKFLOW_STAGES };
-  }
-);
-
-export const getUserWorkflows = api<{ 
-  status?: string;
-  limit?: number;
-  offset?: number;
-}, { workflows: ProjectWorkflow[]; total_count: number }>(
-  { auth: true, expose: true, method: "GET", path: "/workflows/assigned" },
-  async ({ status, limit = 20, offset = 0 }) => {
-    const auth = getAuthData()!;
-    const userId = parseInt(auth.userID);
-
-    let whereClause = "WHERE pw.assigned_to = $1";
-    const params = [userId, limit, offset];
-    let paramIndex = 4;
-
-    if (status) {
-      whereClause += ` AND pw.status = $${paramIndex++}`;
-      params.splice(-2, 0, status);
-    }
-
-    const workflowsQuery = db.rawQuery<ProjectWorkflow & { project_title: string }>(`
-      SELECT 
-        pw.*,
-        p.title as project_title,
-        u.first_name || ' ' || u.last_name as assigned_to_name
-      FROM project_workflows pw
-      JOIN projects p ON pw.project_id = p.id
-      LEFT JOIN users u ON pw.assigned_to = u.id
-      ${whereClause}
-      ORDER BY 
-        CASE WHEN pw.status = 'in_progress' THEN 1
-             WHEN pw.status = 'pending' THEN 2
-             ELSE 3 END,
-        pw.sort_order ASC
-      LIMIT $${paramIndex - 2} OFFSET $${paramIndex - 1}
-    `, ...params);
-
-    const workflows: ProjectWorkflow[] = [];
-    for await (const workflow of workflowsQuery) {
-      workflows.push(workflow);
-    }
-
-    const countResult = await db.rawQueryRow<{ count: number }>(`
-      SELECT COUNT(*) as count 
-      FROM project_workflows pw
-      JOIN projects p ON pw.project_id = p.id
-      ${whereClause.replace(/LIMIT.*$/, '')}
-    `, ...params.slice(0, -2));
-
-    return {
-      workflows,
-      total_count: countResult?.count || 0
-    };
   }
 );
 
