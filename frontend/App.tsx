@@ -21,6 +21,7 @@ import AnalyticsPage from './pages/analytics/AnalyticsPage';
 import MaterialsPage from './pages/materials/MaterialsPage';
 import FinancePage from './pages/finance/FinancePage';
 import SettingsPage from './pages/settings/SettingsPage';
+import TestimonialsPage from './pages/testimonials/TestimonialsPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -126,6 +127,17 @@ function AppInner() {
               <ProtectedRoute>
                 <DashboardLayout>
                   <SettingsPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/testimonials"
+            element={
+              <ProtectedRoute permissions={['content.manage']}>
+                <DashboardLayout>
+                  <TestimonialsPage />
                 </DashboardLayout>
               </ProtectedRoute>
             }

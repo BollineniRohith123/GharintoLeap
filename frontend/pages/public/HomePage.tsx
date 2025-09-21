@@ -1,7 +1,10 @@
 import { Link } from 'react-router-dom';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import GetQuoteForm from '@/components/forms/GetQuoteForm';
+import BecomePartnerForm from '@/components/forms/BecomePartnerForm';
 import {
   ArrowRight,
   CheckCircle,
@@ -83,37 +86,35 @@ const quickActions = [
 ];
 
 export default function HomePage() {
+  const [showQuoteForm, setShowQuoteForm] = useState(false);
+  const [showPartnerForm, setShowPartnerForm] = useState(false);
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-green-50">
+    <div className="min-h-screen bg-gradient-to-br from-gharinto-pale-green via-white to-gharinto-green-50">
       {/* Hero Section */}
       <section className="relative px-6 py-24 sm:py-32">
         <div className="mx-auto max-w-7xl">
           <div className="text-center">
             <div className="flex justify-center mb-6">
-              <div className="h-16 w-16 bg-green-500 rounded-xl flex items-center justify-center">
+              <div className="h-16 w-16 gharinto-primary rounded-xl flex items-center justify-center">
                 <span className="text-white font-bold text-2xl">G</span>
               </div>
             </div>
             <h1 className="text-4xl font-bold tracking-tight text-gray-900 sm:text-6xl">
               Gharinto Interiors
-              <span className="block text-green-600">Marketplace</span>
+              <span className="block text-gharinto-primary">Marketplace</span>
             </h1>
             <p className="mt-6 text-lg leading-8 text-gray-600 max-w-3xl mx-auto">
               India's premier B2B interior design platform connecting customers, designers, vendors, and project managers 
               in a comprehensive ecosystem for seamless project delivery.
             </p>
             <div className="mt-10 flex items-center justify-center gap-x-6">
-              <Link to="/dashboard">
-                <Button size="lg" className="bg-green-600 hover:bg-green-700">
-                  Get Started
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
-              </Link>
-              <Link to="/analytics">
-                <Button variant="outline" size="lg">
-                  View Analytics
-                </Button>
-              </Link>
+              <Button size="lg" className="gharinto-primary hover:gharinto-dark" onClick={() => setShowQuoteForm(true)}>
+                Get Free Quote
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+              <Button variant="outline" size="lg" onClick={() => setShowPartnerForm(true)}>
+                Become a Partner
+              </Button>
             </div>
           </div>
         </div>
@@ -237,6 +238,16 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+      
+      {/* Forms */}
+      <GetQuoteForm 
+        isOpen={showQuoteForm} 
+        onClose={() => setShowQuoteForm(false)} 
+      />
+      <BecomePartnerForm 
+        isOpen={showPartnerForm} 
+        onClose={() => setShowPartnerForm(false)} 
+      />
     </div>
   );
 }

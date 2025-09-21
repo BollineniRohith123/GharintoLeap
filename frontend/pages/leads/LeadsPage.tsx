@@ -144,7 +144,7 @@ export default function LeadsPage() {
                   <TableRow key={lead.id}>
                     <TableCell>
                       <div>
-                        <p className="font-medium">{lead.name}</p>
+                        <p className="font-medium">{lead.firstName} {lead.lastName}</p>
                         <div className="flex items-center space-x-2 text-sm text-muted-foreground">
                           <MapPin className="h-3 w-3" />
                           <span>{lead.city}</span>

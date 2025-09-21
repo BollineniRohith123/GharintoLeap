@@ -15,37 +15,52 @@
 
 :root {
   --radius: 0.625rem;
+  
+  /* Gharinto Brand Colors - Pale Green/Black/Green Theme */
+  --gharinto-primary-green: #10B981;     /* Main green */
+  --gharinto-pale-green: #D1FAE5;        /* Pale green backgrounds */
+  --gharinto-dark-green: #047857;        /* Dark green accents */
+  --gharinto-black: #000000;             /* Pure black */
+  --gharinto-gray-900: #111827;          /* Near black */
+  --gharinto-gray-100: #F3F4F6;          /* Light gray */
+  --gharinto-green-50: #ECFDF5;          /* Very light green */
+  --gharinto-green-100: #D1FAE5;         /* Light green */
+  --gharinto-green-500: #10B981;         /* Medium green */
+  --gharinto-green-600: #059669;         /* Darker green */
+  --gharinto-green-700: #047857;         /* Dark green */
+  
+  /* Updated theme with Gharinto colors */
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
+  --primary: oklch(0.6 0.15 162);         /* Gharinto green in oklch */
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.95 0.05 162);      /* Pale green in oklch */
+  --secondary-foreground: oklch(0.145 0 0);
   --muted: oklch(0.97 0 0);
   --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --accent: oklch(0.5 0.15 162);          /* Dark green in oklch */
+  --accent-foreground: oklch(1 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
+  --ring: oklch(0.6 0.15 162);            /* Green ring color */
+  --chart-1: oklch(0.6 0.15 162);
+  --chart-2: oklch(0.5 0.15 162);
+  --chart-3: oklch(0.4 0.15 162);
+  --chart-4: oklch(0.7 0.15 162);
+  --chart-5: oklch(0.8 0.15 162);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-primary: oklch(0.6 0.15 162);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.95 0.05 162);
+  --sidebar-accent-foreground: oklch(0.145 0 0);
   --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-ring: oklch(0.6 0.15 162);
 }
 
 .dark {
@@ -126,5 +141,58 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+/* Gharinto Brand Utility Classes */
+@layer utilities {
+  .gharinto-primary {
+    background-color: var(--gharinto-primary-green);
+    color: white;
+  }
+
+  .gharinto-pale {
+    background-color: var(--gharinto-pale-green);
+    color: var(--gharinto-gray-900);
+  }
+
+  .gharinto-dark {
+    background-color: var(--gharinto-dark-green);
+    color: white;
+  }
+
+  .gharinto-black {
+    background-color: var(--gharinto-black);
+    color: white;
+  }
+
+  .btn-gharinto-primary {
+    background-color: var(--gharinto-primary-green);
+    color: white;
+    transition: all 0.2s ease;
+  }
+
+  .btn-gharinto-primary:hover {
+    background-color: var(--gharinto-dark-green);
+  }
+
+  .bg-gharinto-gradient {
+    background: linear-gradient(135deg, var(--gharinto-pale-green) 0%, var(--gharinto-primary-green) 100%);
+  }
+
+  .bg-gharinto-gradient-dark {
+    background: linear-gradient(135deg, var(--gharinto-dark-green) 0%, var(--gharinto-black) 100%);
+  }
+
+  .text-gharinto-primary {
+    color: var(--gharinto-primary-green);
+  }
+
+  .text-gharinto-dark {
+    color: var(--gharinto-dark-green);
+  }
+
+  .border-gharinto-primary {
+    border-color: var(--gharinto-primary-green);
   }
 }

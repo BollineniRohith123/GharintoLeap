@@ -11,6 +11,7 @@ interface User {
   city?: string;
   avatarUrl?: string;
   roles: string[];
+  permissions: string[];
   menus: Array<{
     name: string;
     displayName: string;
@@ -52,14 +53,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     staleTime: 1000 * 60 * 10, // 10 minutes
   });
 
+  const { data: permissions } = useQuery({
+    queryKey: ['user-permissions'],
+    queryFn: () => authenticatedBackend.system.getUserPermissions({}),
+    enabled: !!token,
+    staleTime: 1000 * 60 * 10, // 10 minutes
+  });
+
   useEffect(() => {
-    if (profile) {
-      setUser(profile);
+    if (profile && permissions) {
+      setUser({
+        ...profile,
+        permissions: permissions.permissions || []
+      });
     } else if (error && token) {
       // Token is invalid, clear it
       logout();
     }
-  }, [profile, error, token]);
+  }, [profile, permissions, error, token]);
 
   const login = async (email: string, password: string) => {
     const response = await backend.auth.login({ email, password });
@@ -84,9 +95,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const hasPermission = (permission: string): boolean => {
-    // For now, return true since we don't have permissions in the user object
-    // In a real implementation, you would check user.permissions
-    return true;
+    // Check if user has the permission
+    return user?.permissions?.includes(permission) || false;
   };
 
   const hasRole = (role: string): boolean => {

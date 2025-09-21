@@ -56,12 +56,15 @@ const RoleDashboard: React.FC<DashboardProps> = ({ userRole }) => {
           data = await backend.analytics.getProjectManagerDashboard();
           break;
         default:
-          data = null;
+          // Fallback to general dashboard for other roles
+          data = await backend.analytics.getDashboard({});
       }
       
       setDashboardData(data);
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
+      // Set empty data structure to prevent errors
+      setDashboardData({});
     } finally {
       setLoading(false);
     }
@@ -141,14 +144,18 @@ const SuperAdminDashboard: React.FC<{ data: any }> = ({ data }) => (
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {data?.projects?.by_status?.map((item: any) => (
-              <div key={item.status} className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline">{item.status}</Badge>
+            {data?.projects?.by_status?.length > 0 ? (
+              data.projects.by_status.map((item: any) => (
+                <div key={item.status} className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">{item.status}</Badge>
+                  </div>
+                  <span className="font-medium">{item.count}</span>
                 </div>
-                <span className="font-medium">{item.count}</span>
-              </div>
-            ))}
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">No project data available</p>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -159,12 +166,16 @@ const SuperAdminDashboard: React.FC<{ data: any }> = ({ data }) => (
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {data?.leads?.by_source?.map((item: any) => (
-              <div key={item.source} className="flex items-center justify-between">
-                <span className="text-sm">{item.source}</span>
-                <Badge>{item.count}</Badge>
-              </div>
-            ))}
+            {data?.leads?.by_source?.length > 0 ? (
+              data.leads.by_source.map((item: any) => (
+                <div key={item.source} className="flex items-center justify-between">
+                  <span className="text-sm">{item.source}</span>
+                  <Badge>{item.count}</Badge>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">No lead source data available</p>
+            )}
           </div>
         </CardContent>
       </Card>

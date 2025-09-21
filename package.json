@@ -3,6 +3,13 @@
   "version": "1.0.0",
   "type": "module",
   "packageManager": "bun",
+  "scripts": {
+    "dev": "concurrently \"cd backend && encore run\" \"cd frontend && bun run dev\"",
+    "dev:backend": "cd backend && encore run",
+    "dev:frontend": "cd frontend && bun run dev",
+    "build": "cd backend && bun run build",
+    "install:all": "bun install && cd frontend && bun install && cd ../backend && bun install"
+  },
   "workspaces": [
     "backend",
     "frontend"
