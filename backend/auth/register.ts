@@ -1,106 +1,96 @@
-import { api } from "encore.dev/api";
+import { api, APIError } from "encore.dev/api";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import { secret } from "encore.dev/config";
 import db from "../db";
-import * as bcrypt from "bcryptjs";
-import { APIError } from "encore.dev/api";
 
-export interface RegisterRequest {
+const jwtSecret = secret("JWT_SECRET");
+
+interface RegisterRequest {
   email: string;
   password: string;
   firstName: string;
   lastName: string;
   phone?: string;
-  role: 'homeowner' | 'interior_designer' | 'vendor';
-  profileData?: {
-    cityId?: number;
-    businessName?: string;
-    companyName?: string;
-    specializations?: string[];
-    services?: string[];
+  city?: string;
+  userType: 'customer' | 'interior_designer' | 'vendor';
+}
+
+interface RegisterResponse {
+  token: string;
+  user: {
+    id: number;
+    email: string;
+    firstName: string;
+    lastName: string;
   };
 }
 
-export interface RegisterResponse {
-  success: boolean;
-  userId: string;
-}
-
-// Registers a new user with the specified role.
+// Registers a new user account
 export const register = api<RegisterRequest, RegisterResponse>(
   { expose: true, method: "POST", path: "/auth/register" },
   async (req) => {
     // Check if user already exists
-    const existingUser = await db.queryRow<{ id: number }>`
+    const existingUser = await db.queryRow`
       SELECT id FROM users WHERE email = ${req.email}
     `;
 
     if (existingUser) {
-      throw APIError.alreadyExists("user with this email already exists");
+      throw APIError.alreadyExists("User with this email already exists");
     }
 
-    const passwordHash = await bcrypt.hash(req.password, 12);
+    // Hash password
+    const passwordHash = await bcrypt.hash(req.password, 10);
 
-    await db.exec`BEGIN`;
-    
-    try {
-      // Create user
-      const user = await db.queryRow<{ id: number }>`
-        INSERT INTO users (email, password_hash, first_name, last_name, phone)
-        VALUES (${req.email}, ${passwordHash}, ${req.firstName}, ${req.lastName}, ${req.phone})
-        RETURNING id
-      `;
+    // Create user
+    const user = await db.queryRow`
+      INSERT INTO users (email, password_hash, first_name, last_name, phone, city)
+      VALUES (${req.email}, ${passwordHash}, ${req.firstName}, ${req.lastName}, ${req.phone}, ${req.city})
+      RETURNING id, email, first_name, last_name
+    `;
 
-      if (!user) {
-        throw new Error("Failed to create user");
-      }
+    if (!user) {
+      throw APIError.internal("Failed to create user");
+    }
 
-      // Get role ID
-      const role = await db.queryRow<{ id: number }>`
-        SELECT id FROM roles WHERE name = ${req.role}
-      `;
+    // Assign role based on user type
+    const role = await db.queryRow`
+      SELECT id FROM roles WHERE name = ${req.userType}
+    `;
 
-      if (!role) {
-        throw APIError.invalidArgument("invalid role");
-      }
-
-      // Assign role
+    if (role) {
       await db.exec`
         INSERT INTO user_roles (user_id, role_id)
         VALUES (${user.id}, ${role.id})
       `;
-
-      // Create profile based on role
-      if (req.role === 'homeowner') {
-        await db.exec`
-          INSERT INTO homeowner_profiles (user_id, city_id)
-          VALUES (${user.id}, ${req.profileData?.cityId})
-        `;
-      } else if (req.role === 'interior_designer') {
-        await db.exec`
-          INSERT INTO designer_profiles (user_id, city_id, business_name, specializations)
-          VALUES (${user.id}, ${req.profileData?.cityId}, ${req.profileData?.businessName}, ${req.profileData?.specializations})
-        `;
-      } else if (req.role === 'vendor') {
-        await db.exec`
-          INSERT INTO vendor_profiles (user_id, city_id, company_name, services)
-          VALUES (${user.id}, ${req.profileData?.cityId}, ${req.profileData?.companyName}, ${req.profileData?.services})
-        `;
-      }
-
-      // Create wallet for the user
-      await db.exec`
-        INSERT INTO wallets (user_id, balance)
-        VALUES (${user.id}, 0)
-      `;
-
-      await db.exec`COMMIT`;
-
-      return {
-        success: true,
-        userId: user.id.toString()
-      };
-    } catch (error) {
-      await db.exec`ROLLBACK`;
-      throw error;
     }
+
+    // Create wallet for the user
+    await db.exec`
+      INSERT INTO wallets (user_id) VALUES (${user.id})
+    `;
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { userId: user.id, email: user.email },
+      jwtSecret(),
+      { expiresIn: "7d" }
+    );
+
+    // Log the registration event
+    await db.exec`
+      INSERT INTO analytics_events (event_type, user_id, properties, created_at)
+      VALUES ('user_registration', ${user.id}, ${JSON.stringify({ userType: req.userType })}, NOW())
+    `;
+
+    return {
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name
+      }
+    };
   }
 );

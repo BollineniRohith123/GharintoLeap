@@ -1,62 +1,55 @@
-import { api, Cookie } from "encore.dev/api";
+import { api, APIError } from "encore.dev/api";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 import { secret } from "encore.dev/config";
 import db from "../db";
-import * as bcrypt from "bcryptjs";
-import * as jwt from "jsonwebtoken";
-import { APIError } from "encore.dev/api";
 
-const jwtSecret = secret("JWTSecret");
+const jwtSecret = secret("JWT_SECRET");
 
-export interface LoginRequest {
+interface LoginRequest {
   email: string;
   password: string;
 }
 
-export interface LoginResponse {
+interface LoginResponse {
+  token: string;
   user: {
-    id: string;
+    id: number;
     email: string;
     firstName: string;
     lastName: string;
     roles: string[];
   };
-  token: string;
-  session: Cookie<"session">;
 }
 
-// Authenticates user login credentials.
+// Authenticates a user and returns a JWT token
 export const login = api<LoginRequest, LoginResponse>(
   { expose: true, method: "POST", path: "/auth/login" },
   async (req) => {
-    const user = await db.queryRow<{
-      id: number;
-      email: string;
-      password_hash: string;
-      first_name: string;
-      last_name: string;
-      status: string;
-    }>`
-      SELECT id, email, password_hash, first_name, last_name, status
-      FROM users 
-      WHERE email = ${req.email} AND status = 'active'
+    const user = await db.queryRow`
+      SELECT 
+        u.id,
+        u.email,
+        u.password_hash,
+        u.first_name,
+        u.last_name,
+        u.is_active,
+        array_agg(DISTINCT r.name) as roles
+      FROM users u
+      LEFT JOIN user_roles ur ON u.id = ur.user_id
+      LEFT JOIN roles r ON ur.role_id = r.id
+      WHERE u.email = ${req.email}
+      GROUP BY u.id, u.email, u.password_hash, u.first_name, u.last_name, u.is_active
     `;
 
-    if (!user) {
-      throw APIError.unauthenticated("invalid credentials");
+    if (!user || !user.is_active) {
+      throw APIError.unauthenticated("Invalid credentials");
     }
 
     const isValidPassword = await bcrypt.compare(req.password, user.password_hash);
     if (!isValidPassword) {
-      throw APIError.unauthenticated("invalid credentials");
+      throw APIError.unauthenticated("Invalid credentials");
     }
-
-    // Get user roles
-    const roles = await db.queryAll<{ name: string }>`
-      SELECT r.name
-      FROM user_roles ur
-      JOIN roles r ON ur.role_id = r.id
-      WHERE ur.user_id = ${user.id}
-    `;
 
     const token = jwt.sign(
       { userId: user.id, email: user.email },
@@ -64,21 +57,20 @@ export const login = api<LoginRequest, LoginResponse>(
       { expiresIn: "7d" }
     );
 
+    // Log the login event
+    await db.exec`
+      INSERT INTO analytics_events (event_type, user_id, properties, created_at)
+      VALUES ('user_login', ${user.id}, '{"method": "email"}', NOW())
+    `;
+
     return {
+      token,
       user: {
-        id: user.id.toString(),
+        id: user.id,
         email: user.email,
         firstName: user.first_name,
         lastName: user.last_name,
-        roles: roles.map(r => r.name)
-      },
-      token,
-      session: {
-        value: token,
-        expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-        httpOnly: true,
-        secure: true,
-        sameSite: "Lax"
+        roles: user.roles || []
       }
     };
   }

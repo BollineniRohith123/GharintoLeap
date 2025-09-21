@@ -1,219 +1,192 @@
-import { api, Query } from "encore.dev/api";
+import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
+import { Query } from "encore.dev/api";
 import db from "../db";
 
-export interface DashboardParams {
-  cityId?: Query<number>;
+interface DashboardParams {
+  city?: Query<string>;
   dateFrom?: Query<string>;
   dateTo?: Query<string>;
-  timeframe?: Query<string>;
-  city?: Query<string>;
 }
 
-export interface DashboardMetrics {
-  totalProjects: number;
-  activeProjects: number;
-  completedProjects: number;
+interface DashboardStats {
   totalLeads: number;
-  convertedLeads: number;
-  conversionRate: number;
+  totalProjects: number;
   totalRevenue: number;
-  revenue: number;
-  avgProjectValue: number;
-  totalCustomers?: number;
+  activeProjects: number;
+  conversionRate: number;
+  leadsThisMonth: number;
+  projectsThisMonth: number;
+  revenueThisMonth: number;
   topCities: Array<{
-    name: string;
-    projectCount: number;
+    city: string;
+    leads: number;
+    projects: number;
     revenue: number;
-  }>;
-  projectsByStatus: Array<{
-    status: string;
-    count: number;
   }>;
   leadsBySource: Array<{
     source: string;
     count: number;
+    percentage: number;
+  }>;
+  projectsByStatus: Array<{
+    status: string;
+    count: number;
+    percentage: number;
   }>;
   monthlyTrends: Array<{
     month: string;
-    projects: number;
     leads: number;
+    projects: number;
     revenue: number;
   }>;
-  revenueChart?: any[];
-  projectStatusChart?: any[];
-  topDesigners?: any[];
-  averageRating?: number;
-  totalReviews?: number;
-  ratingDistribution?: Record<number, number>;
 }
 
-// Retrieves dashboard analytics and metrics.
-export const getDashboardMetrics = api<DashboardParams, DashboardMetrics>(
+// Gets dashboard analytics and metrics
+export const getDashboard = api<DashboardParams, DashboardStats>(
   { auth: true, expose: true, method: "GET", path: "/analytics/dashboard" },
   async (params) => {
     const auth = getAuthData()!;
+    
+    // Check permissions
+    if (!auth.permissions.includes('analytics.view')) {
+      throw new Error("Insufficient permissions");
+    }
 
-    let whereClause = "WHERE 1=1";
+    let cityFilter = "";
     const queryParams: any[] = [];
     let paramIndex = 1;
 
-    // Date filters
-    if (params.dateFrom) {
-      whereClause += ` AND created_at >= $${paramIndex++}`;
-      queryParams.push(params.dateFrom);
-    }
-    if (params.dateTo) {
-      whereClause += ` AND created_at <= $${paramIndex++}`;
-      queryParams.push(params.dateTo);
+    if (params.city) {
+      cityFilter = ` AND city = $${paramIndex}`;
+      queryParams.push(params.city);
+      paramIndex++;
     }
 
-    // City filter
-    if (params.cityId) {
-      whereClause += ` AND city_id = $${paramIndex++}`;
-      queryParams.push(params.cityId);
-    }
+    // Get date range
+    const dateFrom = params.dateFrom || new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const dateTo = params.dateTo || new Date().toISOString().split('T')[0];
 
-    // Role-based filtering
-    if (auth.roles.includes('project_manager')) {
-      const manager = await db.queryRow<{ id: number }>`
-        SELECT id FROM manager_profiles WHERE user_id = ${auth.userID}
-      `;
-      if (manager) {
-        whereClause += ` AND project_manager_id = $${paramIndex++}`;
-        queryParams.push(manager.id);
-      }
-    }
-
-    // Get project metrics
-    const projectMetrics = await db.rawQueryRow<{
-      total_projects: number;
-      active_projects: number;
-      completed_projects: number;
-      total_revenue: number;
-      avg_project_value: number;
-    }>(`
+    // Total metrics
+    const totalStats = await db.rawQueryRow(`
       SELECT 
-        COUNT(*) as total_projects,
-        COUNT(CASE WHEN status IN ('planning', 'in_progress') THEN 1 END) as active_projects,
-        COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_projects,
-        COALESCE(SUM(actual_cost), 0) as total_revenue,
-        COALESCE(AVG(actual_cost), 0) as avg_project_value
-      FROM projects
-      ${whereClause.replace('created_at', 'p.created_at')}
+        (SELECT COUNT(*) FROM leads WHERE created_at::date >= $${paramIndex} AND created_at::date <= $${paramIndex + 1} ${cityFilter}) as total_leads,
+        (SELECT COUNT(*) FROM projects WHERE created_at::date >= $${paramIndex} AND created_at::date <= $${paramIndex + 1} ${cityFilter}) as total_projects,
+        (SELECT COALESCE(SUM(budget), 0) FROM projects WHERE created_at::date >= $${paramIndex} AND created_at::date <= $${paramIndex + 1} ${cityFilter}) as total_revenue,
+        (SELECT COUNT(*) FROM projects WHERE status IN ('planning', 'in_progress', 'review') ${cityFilter}) as active_projects
+    `, dateFrom, dateTo, ...queryParams);
+
+    // This month metrics
+    const thisMonthStats = await db.rawQueryRow(`
+      SELECT 
+        (SELECT COUNT(*) FROM leads WHERE created_at >= date_trunc('month', CURRENT_DATE) ${cityFilter}) as leads_this_month,
+        (SELECT COUNT(*) FROM projects WHERE created_at >= date_trunc('month', CURRENT_DATE) ${cityFilter}) as projects_this_month,
+        (SELECT COALESCE(SUM(budget), 0) FROM projects WHERE created_at >= date_trunc('month', CURRENT_DATE) ${cityFilter}) as revenue_this_month
     `, ...queryParams);
 
-    // Get lead metrics
-    const leadMetrics = await db.rawQueryRow<{
-      total_leads: number;
-      converted_leads: number;
-    }>(`
+    // Conversion rate
+    const conversionStats = await db.rawQueryRow(`
       SELECT 
         COUNT(*) as total_leads,
-        COUNT(CASE WHEN converted_project_id IS NOT NULL THEN 1 END) as converted_leads
-      FROM leads l
-      ${whereClause.replace('created_at', 'l.created_at').replace('city_id', 'l.city_id')}
-    `, ...queryParams);
+        COUNT(CASE WHEN status = 'converted' THEN 1 END) as converted_leads
+      FROM leads 
+      WHERE created_at::date >= $${paramIndex} AND created_at::date <= $${paramIndex + 1} ${cityFilter}
+    `, dateFrom, dateTo, ...queryParams);
 
-    const conversionRate = leadMetrics && leadMetrics.total_leads > 0 
-      ? (leadMetrics.converted_leads / leadMetrics.total_leads) * 100 
+    const conversionRate = conversionStats?.total_leads > 0 
+      ? (conversionStats.converted_leads / conversionStats.total_leads) * 100 
       : 0;
 
-    // Get top cities
-    const topCities = await db.rawQueryAll<{
-      name: string;
-      project_count: number;
-      revenue: number;
-    }>(`
+    // Top cities
+    const topCities = await db.rawQueryAll(`
       SELECT 
-        c.name,
-        COUNT(p.id) as project_count,
-        COALESCE(SUM(p.actual_cost), 0) as revenue
-      FROM cities c
-      LEFT JOIN projects p ON c.id = p.city_id
-      ${whereClause.replace('created_at', 'p.created_at').replace('city_id', 'p.city_id')}
-      GROUP BY c.id, c.name
-      ORDER BY project_count DESC, revenue DESC
-      LIMIT 5
-    `, ...queryParams);
+        city,
+        COUNT(l.id) as leads,
+        COUNT(p.id) as projects,
+        COALESCE(SUM(p.budget), 0) as revenue
+      FROM (
+        SELECT DISTINCT city FROM leads WHERE city IS NOT NULL 
+        UNION 
+        SELECT DISTINCT city FROM projects WHERE city IS NOT NULL
+      ) cities
+      LEFT JOIN leads l ON cities.city = l.city AND l.created_at::date >= $1 AND l.created_at::date <= $2
+      LEFT JOIN projects p ON cities.city = p.city AND p.created_at::date >= $1 AND p.created_at::date <= $2
+      GROUP BY city
+      ORDER BY revenue DESC, projects DESC, leads DESC
+      LIMIT 10
+    `, dateFrom, dateTo);
 
-    // Get projects by status
-    const projectsByStatus = await db.rawQueryAll<{
-      status: string;
-      count: number;
-    }>(`
-      SELECT status, COUNT(*) as count
-      FROM projects p
-      ${whereClause.replace('created_at', 'p.created_at').replace('city_id', 'p.city_id')}
-      GROUP BY status
-      ORDER BY count DESC
-    `, ...queryParams);
-
-    // Get leads by source
-    const leadsBySource = await db.rawQueryAll<{
-      source: string;
-      count: number;
-    }>(`
-      SELECT COALESCE(source, 'Unknown') as source, COUNT(*) as count
-      FROM leads l
-      ${whereClause.replace('created_at', 'l.created_at').replace('city_id', 'l.city_id')}
+    // Leads by source
+    const leadsBySource = await db.rawQueryAll(`
+      SELECT 
+        source,
+        COUNT(*) as count,
+        (COUNT(*) * 100.0 / (SELECT COUNT(*) FROM leads WHERE created_at::date >= $${paramIndex} AND created_at::date <= $${paramIndex + 1} ${cityFilter})) as percentage
+      FROM leads
+      WHERE created_at::date >= $${paramIndex} AND created_at::date <= $${paramIndex + 1} ${cityFilter}
       GROUP BY source
       ORDER BY count DESC
+    `, dateFrom, dateTo, ...queryParams);
+
+    // Projects by status
+    const projectsByStatus = await db.rawQueryAll(`
+      SELECT 
+        status,
+        COUNT(*) as count,
+        (COUNT(*) * 100.0 / (SELECT COUNT(*) FROM projects WHERE created_at::date >= $${paramIndex} AND created_at::date <= $${paramIndex + 1} ${cityFilter})) as percentage
+      FROM projects
+      WHERE created_at::date >= $${paramIndex} AND created_at::date <= $${paramIndex + 1} ${cityFilter}
+      GROUP BY status
+      ORDER BY count DESC
+    `, dateFrom, dateTo, ...queryParams);
+
+    // Monthly trends (last 12 months)
+    const monthlyTrends = await db.rawQueryAll(`
+      SELECT 
+        to_char(month, 'YYYY-MM') as month,
+        COUNT(l.id) as leads,
+        COUNT(p.id) as projects,
+        COALESCE(SUM(p.budget), 0) as revenue
+      FROM generate_series(
+        date_trunc('month', CURRENT_DATE - interval '11 months'),
+        date_trunc('month', CURRENT_DATE),
+        '1 month'::interval
+      ) month
+      LEFT JOIN leads l ON date_trunc('month', l.created_at) = month ${cityFilter.replace('AND city', 'AND l.city')}
+      LEFT JOIN projects p ON date_trunc('month', p.created_at) = month ${cityFilter.replace('AND city', 'AND p.city')}
+      GROUP BY month
+      ORDER BY month
     `, ...queryParams);
 
-    // Get monthly trends
-    const monthlyTrends = await db.rawQueryAll<{
-      month: string;
-      projects: number;
-      leads: number;
-      revenue: number;
-    }>(`
-      WITH months AS (
-        SELECT DATE_TRUNC('month', generate_series(
-          COALESCE($${queryParams.length + 1}::date, NOW() - INTERVAL '12 months'),
-          COALESCE($${queryParams.length + 2}::date, NOW()),
-          '1 month'::interval
-        )) as month
-      )
-      SELECT 
-        TO_CHAR(m.month, 'YYYY-MM') as month,
-        COALESCE(COUNT(p.id), 0) as projects,
-        COALESCE(COUNT(l.id), 0) as leads,
-        COALESCE(SUM(p.actual_cost), 0) as revenue
-      FROM months m
-      LEFT JOIN projects p ON DATE_TRUNC('month', p.created_at) = m.month
-      LEFT JOIN leads l ON DATE_TRUNC('month', l.created_at) = m.month
-      GROUP BY m.month
-      ORDER BY m.month
-    `, ...queryParams, params.dateFrom || new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString(), params.dateTo || new Date().toISOString());
-
     return {
-      totalProjects: projectMetrics?.total_projects || 0,
-      activeProjects: projectMetrics?.active_projects || 0,
-      completedProjects: projectMetrics?.completed_projects || 0,
-      totalLeads: leadMetrics?.total_leads || 0,
-      convertedLeads: leadMetrics?.converted_leads || 0,
+      totalLeads: totalStats?.total_leads || 0,
+      totalProjects: totalStats?.total_projects || 0,
+      totalRevenue: totalStats?.total_revenue || 0,
+      activeProjects: totalStats?.active_projects || 0,
       conversionRate: Math.round(conversionRate * 100) / 100,
-      totalRevenue: projectMetrics?.total_revenue || 0,
-      revenue: projectMetrics?.total_revenue || 0,
-      avgProjectValue: projectMetrics?.avg_project_value || 0,
+      leadsThisMonth: thisMonthStats?.leads_this_month || 0,
+      projectsThisMonth: thisMonthStats?.projects_this_month || 0,
+      revenueThisMonth: thisMonthStats?.revenue_this_month || 0,
       topCities: topCities.map(city => ({
-        name: city.name,
-        projectCount: city.project_count,
+        city: city.city,
+        leads: city.leads,
+        projects: city.projects,
         revenue: city.revenue
       })),
-      projectsByStatus: projectsByStatus.map(status => ({
-        status: status.status,
-        count: status.count
+      leadsBySource: leadsBySource.map(item => ({
+        source: item.source,
+        count: item.count,
+        percentage: Math.round(item.percentage * 100) / 100
       })),
-      leadsBySource: leadsBySource.map(source => ({
-        source: source.source,
-        count: source.count
+      projectsByStatus: projectsByStatus.map(item => ({
+        status: item.status,
+        count: item.count,
+        percentage: Math.round(item.percentage * 100) / 100
       })),
       monthlyTrends: monthlyTrends.map(trend => ({
         month: trend.month,
-        projects: trend.projects,
         leads: trend.leads,
+        projects: trend.projects,
         revenue: trend.revenue
       }))
     };

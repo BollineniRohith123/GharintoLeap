@@ -1,88 +1,76 @@
-import { api } from "encore.dev/api";
+import { api, APIError } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import db from "../db";
 
-export interface WalletBalance {
+interface Wallet {
+  id: number;
+  userId: number;
   balance: number;
-  blockedAmount: number;
-  availableBalance: number;
+  totalEarned: number;
+  totalSpent: number;
+  isActive: boolean;
 }
 
-export interface WalletTransaction {
-  id: string;
+interface Transaction {
+  id: number;
   type: string;
   amount: number;
-  description: string | null;
+  description?: string;
   status: string;
   createdAt: string;
 }
 
-export interface WalletDetailsResponse {
-  wallet: WalletBalance;
-  recentTransactions: WalletTransaction[];
+interface WalletResponse {
+  wallet: Wallet;
+  recentTransactions: Transaction[];
 }
 
-// Retrieves wallet details and recent transactions for the current user.
-export const getWalletDetails = api<void, WalletDetailsResponse>(
+// Gets the user's wallet information and recent transactions
+export const getWallet = api<void, WalletResponse>(
   { auth: true, expose: true, method: "GET", path: "/payments/wallet" },
   async () => {
     const auth = getAuthData()!;
-
-    const wallet = await db.queryRow<{
-      balance: number;
-      blocked_amount: number;
-    }>`
-      SELECT balance, blocked_amount
-      FROM wallets
-      WHERE user_id = ${auth.userID}
+    
+    // Get or create wallet
+    let wallet = await db.queryRow`
+      SELECT * FROM wallets WHERE user_id = ${auth.userID}
     `;
 
     if (!wallet) {
-      // Create wallet if it doesn't exist
-      await db.exec`
-        INSERT INTO wallets (user_id, balance, blocked_amount)
-        VALUES (${auth.userID}, 0, 0)
+      wallet = await db.queryRow`
+        INSERT INTO wallets (user_id) VALUES (${auth.userID}) RETURNING *
       `;
-      
-      return {
-        wallet: {
-          balance: 0,
-          blockedAmount: 0,
-          availableBalance: 0
-        },
-        recentTransactions: []
-      };
     }
 
-    const transactions = await db.queryAll<{
-      id: number;
-      transaction_type: string;
-      amount: number;
-      description: string | null;
-      status: string;
-      created_at: string;
-    }>`
-      SELECT wt.id, wt.transaction_type, wt.amount, wt.description, wt.status, wt.created_at
-      FROM wallet_transactions wt
-      JOIN wallets w ON wt.wallet_id = w.id
-      WHERE w.user_id = ${auth.userID}
-      ORDER BY wt.created_at DESC
-      LIMIT 10
+    if (!wallet) {
+      throw APIError.internal("Failed to get wallet");
+    }
+
+    // Get recent transactions
+    const transactions = await db.queryAll`
+      SELECT id, type, amount, description, status, created_at
+      FROM transactions
+      WHERE wallet_id = ${wallet.id}
+      ORDER BY created_at DESC
+      LIMIT 20
     `;
 
     return {
       wallet: {
+        id: wallet.id,
+        userId: wallet.user_id,
         balance: wallet.balance,
-        blockedAmount: wallet.blocked_amount,
-        availableBalance: wallet.balance - wallet.blocked_amount
+        totalEarned: wallet.total_earned,
+        totalSpent: wallet.total_spent,
+        isActive: wallet.is_active
       },
-      recentTransactions: transactions.map(t => ({
-        id: t.id.toString(),
-        type: t.transaction_type,
-        amount: t.amount,
-        description: t.description,
-        status: t.status,
-        createdAt: t.created_at
+      recentTransactions: transactions.map(transaction => ({
+        id: transaction.id,
+        type: transaction.type,
+        amount: transaction.amount,
+        description: transaction.description,
+        status: transaction.status,
+        createdAt: transaction.created_at
       }))
     };
   }

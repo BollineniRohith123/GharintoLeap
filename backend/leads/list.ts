@@ -1,50 +1,55 @@
-import { api, Query } from "encore.dev/api";
+import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
+import { Query } from "encore.dev/api";
 import db from "../db";
 
-export interface LeadListParams {
+interface ListLeadsParams {
   page?: Query<number>;
   limit?: Query<number>;
   status?: Query<string>;
-  cityId?: Query<number>;
+  city?: Query<string>;
   assignedTo?: Query<number>;
-  source?: Query<string>;
+  minScore?: Query<number>;
 }
 
-export interface Lead {
-  id: string;
-  customerName: string;
-  customerEmail: string | null;
-  customerPhone: string | null;
-  source: string | null;
-  leadType: string | null;
-  projectType: string | null;
-  budgetRange: string | null;
-  status: string;
+interface Lead {
+  id: number;
+  source: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  city: string;
+  budgetMin?: number;
+  budgetMax?: number;
+  projectType?: string;
   score: number;
-  assignedTo: {
+  status: string;
+  assignedTo?: {
+    id: number;
     name: string;
-    email: string;
-  } | null;
-  city: {
-    name: string;
-    state: string;
-  } | null;
+  };
   createdAt: string;
 }
 
-export interface LeadListResponse {
+interface ListLeadsResponse {
   leads: Lead[];
   total: number;
   page: number;
   limit: number;
 }
 
-// Retrieves a list of leads based on user permissions and filters.
-export const listLeads = api<LeadListParams, LeadListResponse>(
+// Lists leads with filtering and pagination
+export const listLeads = api<ListLeadsParams, ListLeadsResponse>(
   { auth: true, expose: true, method: "GET", path: "/leads" },
   async (params) => {
     const auth = getAuthData()!;
+    
+    // Check permissions
+    if (!auth.permissions.includes('leads.view')) {
+      throw new Error("Insufficient permissions");
+    }
+
     const page = params.page || 1;
     const limit = params.limit || 20;
     const offset = (page - 1) * limit;
@@ -54,90 +59,75 @@ export const listLeads = api<LeadListParams, LeadListResponse>(
     let paramIndex = 1;
 
     // Role-based filtering
-    if (!auth.permissions.includes('leads.view')) {
-      // If user can't view all leads, only show assigned ones
-      whereClause += ` AND l.assigned_to = $${paramIndex++}`;
-      queryParams.push(parseInt(auth.userID));
+    if (auth.roles.includes('interior_designer')) {
+      whereClause += ` AND l.assigned_to = $${paramIndex}`;
+      queryParams.push(auth.userID);
+      paramIndex++;
     }
 
-    // Status filter
     if (params.status) {
-      whereClause += ` AND l.status = $${paramIndex++}`;
+      whereClause += ` AND l.status = $${paramIndex}`;
       queryParams.push(params.status);
+      paramIndex++;
     }
 
-    // City filter
-    if (params.cityId) {
-      whereClause += ` AND l.city_id = $${paramIndex++}`;
-      queryParams.push(params.cityId);
+    if (params.city) {
+      whereClause += ` AND l.city = $${paramIndex}`;
+      queryParams.push(params.city);
+      paramIndex++;
     }
 
-    // Assigned to filter
     if (params.assignedTo) {
-      whereClause += ` AND l.assigned_to = $${paramIndex++}`;
+      whereClause += ` AND l.assigned_to = $${paramIndex}`;
       queryParams.push(params.assignedTo);
+      paramIndex++;
     }
 
-    // Source filter
-    if (params.source) {
-      whereClause += ` AND l.source = $${paramIndex++}`;
-      queryParams.push(params.source);
+    if (params.minScore) {
+      whereClause += ` AND l.score >= $${paramIndex}`;
+      queryParams.push(params.minScore);
+      paramIndex++;
     }
 
-    const query = `
+    const leads = await db.rawQueryAll(`
       SELECT 
-        l.id, l.customer_name, l.customer_email, l.customer_phone,
-        l.source, l.lead_type, l.project_type, l.budget_range,
-        l.status, l.score, l.created_at,
-        u.first_name as assignee_first_name, u.last_name as assignee_last_name, u.email as assignee_email,
-        c.name as city_name, c.state as city_state
+        l.*,
+        u.first_name as assigned_first_name,
+        u.last_name as assigned_last_name
       FROM leads l
       LEFT JOIN users u ON l.assigned_to = u.id
-      LEFT JOIN cities c ON l.city_id = c.id
       ${whereClause}
-      ORDER BY l.created_at DESC
-      LIMIT $${paramIndex++} OFFSET $${paramIndex}
-    `;
+      ORDER BY l.score DESC, l.created_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `, ...queryParams, limit, offset);
 
-    queryParams.push(limit, offset);
-
-    const leads = await db.rawQueryAll<any>(query, ...queryParams);
-
-    // Get total count
-    const countQuery = `
+    const totalResult = await db.rawQueryRow(`
       SELECT COUNT(*) as total
       FROM leads l
       ${whereClause}
-    `;
-
-    const countResult = await db.rawQueryRow<{ total: number }>(
-      countQuery, 
-      ...queryParams.slice(0, -2)
-    );
+    `, ...queryParams);
 
     return {
-      leads: leads.map(l => ({
-        id: l.id.toString(),
-        customerName: l.customer_name,
-        customerEmail: l.customer_email,
-        customerPhone: l.customer_phone,
-        source: l.source,
-        leadType: l.lead_type,
-        projectType: l.project_type,
-        budgetRange: l.budget_range,
-        status: l.status,
-        score: l.score,
-        assignedTo: l.assignee_first_name ? {
-          name: `${l.assignee_first_name} ${l.assignee_last_name}`,
-          email: l.assignee_email
-        } : null,
-        city: l.city_name ? {
-          name: l.city_name,
-          state: l.city_state
-        } : null,
-        createdAt: l.created_at
+      leads: leads.map(lead => ({
+        id: lead.id,
+        source: lead.source,
+        firstName: lead.first_name,
+        lastName: lead.last_name,
+        email: lead.email,
+        phone: lead.phone,
+        city: lead.city,
+        budgetMin: lead.budget_min,
+        budgetMax: lead.budget_max,
+        projectType: lead.project_type,
+        score: lead.score,
+        status: lead.status,
+        assignedTo: lead.assigned_to ? {
+          id: lead.assigned_to,
+          name: `${lead.assigned_first_name} ${lead.assigned_last_name}`
+        } : undefined,
+        createdAt: lead.created_at
       })),
-      total: countResult?.total || 0,
+      total: totalResult?.total || 0,
       page,
       limit
     };

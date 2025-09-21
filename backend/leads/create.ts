@@ -1,104 +1,151 @@
 import { api } from "encore.dev/api";
-import { getAuthData } from "~encore/auth";
 import db from "../db";
-import { APIError } from "encore.dev/api";
 
-export interface CreateLeadRequest {
-  customerName: string;
-  customerEmail?: string;
-  customerPhone?: string;
-  source?: string;
-  leadType?: string;
+interface CreateLeadRequest {
+  source: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  city: string;
+  budgetMin?: number;
+  budgetMax?: number;
   projectType?: string;
-  budgetRange?: string;
+  propertyType?: string;
+  timeline?: string;
   description?: string;
-  cityId?: number;
 }
 
-export interface CreateLeadResponse {
-  id: string;
-  customerName: string;
-  status: string;
+interface Lead {
+  id: number;
+  source: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  city: string;
+  budgetMin?: number;
+  budgetMax?: number;
+  projectType?: string;
+  propertyType?: string;
+  timeline?: string;
+  description?: string;
   score: number;
+  status: string;
+  createdAt: string;
 }
 
-// Creates a new lead.
-export const createLead = api<CreateLeadRequest, CreateLeadResponse>(
-  { auth: true, expose: true, method: "POST", path: "/leads" },
+// Creates a new lead with automatic scoring
+export const createLead = api<CreateLeadRequest, Lead>(
+  { expose: true, method: "POST", path: "/leads" },
   async (req) => {
-    const auth = getAuthData()!;
-
-    if (!auth.permissions.includes('leads.create')) {
-      throw APIError.permissionDenied("insufficient permissions");
-    }
-
-    // Calculate lead score based on available information
+    // Calculate lead score based on various factors
     let score = 0;
-    if (req.customerEmail) score += 20;
-    if (req.customerPhone) score += 20;
-    if (req.budgetRange) score += 30;
-    if (req.projectType) score += 15;
-    if (req.description) score += 15;
+    
+    // Budget scoring
+    if (req.budgetMin && req.budgetMin > 500000) score += 30;
+    else if (req.budgetMin && req.budgetMin > 200000) score += 20;
+    else if (req.budgetMin) score += 10;
+    
+    // Timeline scoring
+    if (req.timeline === 'immediate') score += 25;
+    else if (req.timeline === '1-3 months') score += 20;
+    else if (req.timeline === '3-6 months') score += 15;
+    else if (req.timeline === '6-12 months') score += 10;
+    
+    // Project type scoring
+    if (req.projectType === 'full_home') score += 20;
+    else if (req.projectType === 'multiple_rooms') score += 15;
+    else if (req.projectType === 'single_room') score += 10;
+    
+    // Property type scoring
+    if (req.propertyType === 'apartment') score += 10;
+    else if (req.propertyType === 'villa') score += 15;
+    else if (req.propertyType === 'office') score += 12;
+    
+    // Source scoring
+    if (req.source === 'website_form') score += 10;
+    else if (req.source === 'referral') score += 15;
+    else if (req.source === 'social_media') score += 8;
 
-    const lead = await db.queryRow<{
-      id: number;
-      customer_name: string;
-      status: string;
-      score: number;
-    }>`
+    const lead = await db.queryRow`
       INSERT INTO leads (
-        customer_name, customer_email, customer_phone, source,
-        lead_type, project_type, budget_range, description,
-        city_id, status, score, created_at, updated_at
-      )
-      VALUES (
-        ${req.customerName}, ${req.customerEmail}, ${req.customerPhone}, ${req.source},
-        ${req.leadType}, ${req.projectType}, ${req.budgetRange}, ${req.description},
-        ${req.cityId}, 'new', ${score}, NOW(), NOW()
-      )
-      RETURNING id, customer_name, status, score
+        source, first_name, last_name, email, phone, city,
+        budget_min, budget_max, project_type, property_type,
+        timeline, description, score
+      ) VALUES (
+        ${req.source}, ${req.firstName}, ${req.lastName}, ${req.email}, ${req.phone}, ${req.city},
+        ${req.budgetMin}, ${req.budgetMax}, ${req.projectType}, ${req.propertyType},
+        ${req.timeline}, ${req.description}, ${score}
+      ) RETURNING *
     `;
 
     if (!lead) {
-      throw APIError.internal("failed to create lead");
+      throw new Error("Failed to create lead");
     }
 
-    // Auto-assign lead based on city and availability
-    if (req.cityId) {
-      const availableAgent = await db.queryRow<{ user_id: number }>`
-        SELECT mp.user_id
-        FROM manager_profiles mp
-        WHERE ${req.cityId} = ANY(mp.access_cities)
-        ORDER BY RANDOM()
-        LIMIT 1
-      `;
+    // Log the lead creation event
+    await db.exec`
+      INSERT INTO analytics_events (event_type, entity_type, entity_id, properties, created_at)
+      VALUES ('lead_created', 'lead', ${lead.id}, ${JSON.stringify({ score, source: req.source })}, NOW())
+    `;
 
-      if (availableAgent) {
-        await db.exec`
-          UPDATE leads SET assigned_to = ${availableAgent.user_id}
-          WHERE id = ${lead.id}
-        `;
-
-        // Create notification for assigned agent
-        await db.exec`
-          INSERT INTO notifications (user_id, title, content, type, reference_id, reference_type)
-          VALUES (
-            ${availableAgent.user_id},
-            'New Lead Assigned',
-            'A new lead "${req.customerName}" has been assigned to you.',
-            'lead_assigned',
-            ${lead.id},
-            'lead'
-          )
-        `;
-      }
-    }
+    // Auto-assign lead based on city and workload
+    await assignLead(lead.id, req.city);
 
     return {
-      id: lead.id.toString(),
-      customerName: lead.customer_name,
+      id: lead.id,
+      source: lead.source,
+      firstName: lead.first_name,
+      lastName: lead.last_name,
+      email: lead.email,
+      phone: lead.phone,
+      city: lead.city,
+      budgetMin: lead.budget_min,
+      budgetMax: lead.budget_max,
+      projectType: lead.project_type,
+      propertyType: lead.property_type,
+      timeline: lead.timeline,
+      description: lead.description,
+      score: lead.score,
       status: lead.status,
-      score: lead.score
+      createdAt: lead.created_at
     };
   }
 );
+
+async function assignLead(leadId: number, city: string) {
+  // Find the best available designer in the city
+  const designer = await db.queryRow`
+    SELECT u.id, COUNT(l.id) as lead_count
+    FROM users u
+    JOIN user_roles ur ON u.id = ur.user_id
+    JOIN roles r ON ur.role_id = r.id
+    LEFT JOIN leads l ON u.id = l.assigned_to AND l.status IN ('new', 'contacted', 'qualified')
+    WHERE r.name = 'interior_designer' 
+      AND u.city = ${city} 
+      AND u.is_active = true
+    GROUP BY u.id
+    ORDER BY lead_count ASC, u.created_at ASC
+    LIMIT 1
+  `;
+
+  if (designer) {
+    await db.exec`
+      UPDATE leads SET assigned_to = ${designer.id} WHERE id = ${leadId}
+    `;
+
+    // Create notification for the assigned designer
+    await db.exec`
+      INSERT INTO notifications (user_id, title, content, type, reference_type, reference_id)
+      VALUES (
+        ${designer.id},
+        'New Lead Assigned',
+        'A new lead has been assigned to you',
+        'lead_assignment',
+        'lead',
+        ${leadId}
+      )
+    `;
+  }
+}

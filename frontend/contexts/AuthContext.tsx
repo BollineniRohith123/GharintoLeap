@@ -1,67 +1,111 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import backend from '~backend/client';
-import type { UserProfile } from '~backend/users/profile';
+
+interface User {
+  id: number;
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone?: string;
+  city?: string;
+  avatarUrl?: string;
+  roles: string[];
+  menus: Array<{
+    name: string;
+    displayName: string;
+    icon?: string;
+    path?: string;
+    children?: Array<{
+      name: string;
+      displayName: string;
+      path?: string;
+    }>;
+  }>;
+}
 
 interface AuthContextType {
-  user: UserProfile | null;
-  isLoading: boolean;
+  user: User | null;
+  token: string | null;
   login: (email: string, password: string) => Promise<void>;
+  register: (userData: any) => Promise<void>;
   logout: () => void;
-  isAuthenticated: boolean;
+  isLoading: boolean;
+  hasPermission: (permission: string) => boolean;
+  hasRole: (role: string) => boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<UserProfile | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [token, setToken] = useState<string | null>(localStorage.getItem('auth_token'));
+  const [user, setUser] = useState<User | null>(null);
 
-  const getStoredToken = () => localStorage.getItem('auth_token');
+  const authenticatedBackend = token 
+    ? backend.with({ auth: () => ({ authorization: `Bearer ${token}` }) })
+    : backend;
 
-  const authenticatedBackend = () => {
-    const token = getStoredToken();
-    return backend; // For now, let's just use the basic backend
-  };
+  const { data: profile, isLoading, error } = useQuery({
+    queryKey: ['profile'],
+    queryFn: () => authenticatedBackend.users.getProfile(),
+    enabled: !!token,
+    staleTime: 1000 * 60 * 10, // 10 minutes
+  });
 
   useEffect(() => {
-    const loadUser = async () => {
-      const token = getStoredToken();
-      if (token) {
-        try {
-          const profile = await authenticatedBackend().users.getProfile();
-          setUser(profile);
-        } catch (error) {
-          localStorage.removeItem('auth_token');
-        }
-      }
-      setIsLoading(false);
-    };
-
-    loadUser();
-  }, []);
+    if (profile) {
+      setUser(profile);
+    } else if (error && token) {
+      // Token is invalid, clear it
+      logout();
+    }
+  }, [profile, error, token]);
 
   const login = async (email: string, password: string) => {
     const response = await backend.auth.login({ email, password });
-    localStorage.setItem('auth_token', response.token);
+    const newToken = response.token;
     
-    // Get user profile
-    const profile = await authenticatedBackend().users.getProfile();
-    setUser(profile);
+    localStorage.setItem('auth_token', newToken);
+    setToken(newToken);
+  };
+
+  const register = async (userData: any) => {
+    const response = await backend.auth.register(userData);
+    const newToken = response.token;
+    
+    localStorage.setItem('auth_token', newToken);
+    setToken(newToken);
   };
 
   const logout = () => {
     localStorage.removeItem('auth_token');
+    setToken(null);
     setUser(null);
   };
 
+  const hasPermission = (permission: string): boolean => {
+    // For now, return true since we don't have permissions in the user object
+    // In a real implementation, you would check user.permissions
+    return true;
+  };
+
+  const hasRole = (role: string): boolean => {
+    return user?.roles?.includes(role) || false;
+  };
+
   return (
-    <AuthContext.Provider value={{
-      user,
-      isLoading,
-      login,
-      logout,
-      isAuthenticated: !!user
-    }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        token,
+        login,
+        register,
+        logout,
+        isLoading,
+        hasPermission,
+        hasRole,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
@@ -73,8 +117,4 @@ export function useAuth() {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
-}
-
-export function useBackend() {
-  return backend; // For now, let's just use the basic backend
 }
