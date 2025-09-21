@@ -288,5 +288,71 @@ export const MaterialValidationRules = {
     { field: 'stock_quantity', rules: ['integer', 'min:0'] },
     { field: 'min_order_quantity', rules: ['integer', 'min:1'] },
     { field: 'lead_time_days', rules: ['integer', 'min:0'] }
+  ],
+  update: [
+    { field: 'name', rules: ['min:3', 'max:200'] },
+    { field: 'category', rules: ['max:100'] },
+    { field: 'subcategory', rules: ['max:100'] },
+    { field: 'brand', rules: ['max:100'] },
+    { field: 'model', rules: ['max:100'] },
+    { field: 'description', rules: ['max:2000'] },
+    { field: 'unit', rules: ['max:20'] },
+    { field: 'price', rules: ['numeric', 'min:0'] },
+    { field: 'discounted_price', rules: ['numeric', 'min:0'] },
+    { field: 'stock_quantity', rules: ['integer', 'min:0'] },
+    { field: 'min_order_quantity', rules: ['integer', 'min:1'] },
+    { field: 'lead_time_days', rules: ['integer', 'min:0'] }
+  ]
+};
+
+export const VendorValidationRules = {
+  create: [
+    { field: 'company_name', rules: ['required', 'min:3', 'max:200'] },
+    { field: 'business_type', rules: ['required', 'max:50'] },
+    { field: 'gst_number', rules: ['alphanumeric', 'min:15', 'max:15'] },
+    { field: 'pan_number', rules: ['alphanumeric', 'min:10', 'max:10'] },
+    { field: 'address', rules: ['max:500'] },
+    { field: 'city', rules: ['required', 'alpha', 'max:100'] },
+    { field: 'state', rules: ['required', 'alpha', 'max:100'] },
+    { field: 'pincode', rules: ['required', 'numeric', 'min:6', 'max:6'] }
+  ],
+  update: [
+    { field: 'company_name', rules: ['min:3', 'max:200'] },
+    { field: 'business_type', rules: ['max:50'] },
+    { field: 'gst_number', rules: ['alphanumeric', 'min:15', 'max:15'] },
+    { field: 'pan_number', rules: ['alphanumeric', 'min:10', 'max:10'] },
+    { field: 'address', rules: ['max:500'] },
+    { field: 'city', rules: ['alpha', 'max:100'] },
+    { field: 'state', rules: ['alpha', 'max:100'] },
+    { field: 'pincode', rules: ['numeric', 'min:6', 'max:6'] }
+  ]
+};
+
+export const TransactionValidationRules = {
+  create: [
+    { field: 'type', rules: ['required', 'in:credit,debit'] },
+    { field: 'amount', rules: ['required', 'numeric', 'min:1'] },
+    { field: 'description', rules: ['required', 'max:500'] },
+    { field: 'reference_type', rules: ['in:project,lead,commission,wallet-topup,refund'] },
+    { field: 'reference_id', rules: ['integer', 'min:1'] }
+  ]
+};
+
+export const MessageValidationRules = {
+  create: [
+    { field: 'conversation_id', rules: ['required', 'integer', 'min:1'] },
+    { field: 'content', rules: ['required', 'max:5000'] },
+    { field: 'message_type', rules: ['in:text,image,file,system'] }
+  ]
+};
+
+export const NotificationValidationRules = {
+  create: [
+    { field: 'user_id', rules: ['required', 'integer', 'min:1'] },
+    { field: 'title', rules: ['required', 'max:200'] },
+    { field: 'content', rules: ['required', 'max:1000'] },
+    { field: 'type', rules: ['required', 'max:50'] },
+    { field: 'reference_type', rules: ['max:50'] },
+    { field: 'reference_id', rules: ['integer', 'min:1'] }
   ]
 };

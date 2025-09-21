@@ -7,58 +7,51 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Search, Plus, Package, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Search, Plus, Package, AlertTriangle, CheckCircle, Star, Edit, Eye, ShoppingCart } from 'lucide-react';
+import { useToast } from '@/components/ui/use-toast';
 import backend from '~backend/client';
+import type { Material, MaterialSearchRequest } from '~backend/materials/material_service';
 
 export default function MaterialsPage() {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
-  const [stockFilter, setStockFilter] = useState('');
+  const [brandFilter, setBrandFilter] = useState('');
+  const [inStockOnly, setInStockOnly] = useState(false);
+  const [page, setPage] = useState(1);
+  const [limit] = useState(20);
+  const { toast } = useToast();
 
-  const { data: materials, isLoading } = useQuery({
-    queryKey: ['materials', search, categoryFilter, stockFilter],
-    queryFn: () => ({
-      materials: [
-        {
-          id: '1',
-          name: 'Premium Oak Flooring',
-          category: 'Flooring',
-          vendor: { name: 'Wood Works Ltd', avatar: '' },
-          price: 2500,
-          unit: 'sq ft',
-          stock: 150,
-          lowStockThreshold: 50,
-          status: 'available',
-          sku: 'OAK-001'
-        },
-        {
-          id: '2',
-          name: 'Marble Kitchen Countertop',
-          category: 'Countertops',
-          vendor: { name: 'Stone Craft', avatar: '' },
-          price: 8500,
-          unit: 'sq ft',
-          stock: 25,
-          lowStockThreshold: 30,
-          status: 'low_stock',
-          sku: 'MAR-002'
-        },
-        {
-          id: '3',
-          name: 'LED Ceiling Lights',
-          category: 'Lighting',
-          vendor: { name: 'Bright Solutions', avatar: '' },
-          price: 1200,
-          unit: 'piece',
-          stock: 0,
-          lowStockThreshold: 20,
-          status: 'out_of_stock',
-          sku: 'LED-003'
-        }
-      ],
-      total: 3
-    }),
+  const searchParams: MaterialSearchRequest = {
+    search: search || undefined,
+    category: categoryFilter || undefined,
+    brand: brandFilter || undefined,
+    in_stock_only: inStockOnly || undefined,
+    page,
+    limit,
+    sort_by: 'created_at',
+    sort_order: 'desc'
+  };
+
+  const { data: materialsData, isLoading, error } = useQuery({
+    queryKey: ['materials', searchParams],
+    queryFn: () => backend.materials.searchMaterials(searchParams),
   });
+
+  const { data: stats } = useQuery({
+    queryKey: ['material-stats'],
+    queryFn: () => backend.materials.getMaterialStats(),
+  });
+
+  const { data: categories } = useQuery({
+    queryKey: ['material-categories'],
+    queryFn: () => backend.materials.getCategories(),
+  });
+
+  const getStockStatus = (material: Material) => {
+    if (material.stock_quantity === 0) return 'out_of_stock';
+    if (material.stock_quantity <= material.min_order_quantity) return 'low_stock';
+    return 'available';
+  };
 
   const getStockColor = (status: string) => {
     switch (status) {
@@ -77,6 +70,22 @@ export default function MaterialsPage() {
       default: return Package;
     }
   };
+
+  const handleClearFilters = () => {
+    setSearch('');
+    setCategoryFilter('');
+    setBrandFilter('');
+    setInStockOnly(false);
+    setPage(1);
+  };
+
+  if (error) {
+    toast({
+      title: 'Error loading materials',
+      description: 'Failed to load materials. Please try again.',
+      variant: 'destructive',
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -98,7 +107,7 @@ export default function MaterialsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Total Materials</p>
-                <p className="text-2xl font-bold">{materials?.total || 0}</p>
+                <p className="text-2xl font-bold">{stats?.total_materials?.toLocaleString() || 0}</p>
               </div>
               <Package className="h-8 w-8 text-blue-500" />
             </div>
@@ -109,10 +118,8 @@ export default function MaterialsPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">In Stock</p>
-                <p className="text-2xl font-bold">
-                  {materials?.materials?.filter(m => m.status === 'available').length || 0}
-                </p>
+                <p className="text-sm font-medium text-muted-foreground">Categories</p>
+                <p className="text-2xl font-bold">{stats?.categories || 0}</p>
               </div>
               <CheckCircle className="h-8 w-8 text-green-500" />
             </div>
@@ -124,9 +131,7 @@ export default function MaterialsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Low Stock</p>
-                <p className="text-2xl font-bold">
-                  {materials?.materials?.filter(m => m.status === 'low_stock').length || 0}
-                </p>
+                <p className="text-2xl font-bold">{stats?.low_stock_count || 0}</p>
               </div>
               <AlertTriangle className="h-8 w-8 text-yellow-500" />
             </div>
@@ -137,12 +142,10 @@ export default function MaterialsPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Out of Stock</p>
-                <p className="text-2xl font-bold">
-                  {materials?.materials?.filter(m => m.status === 'out_of_stock').length || 0}
-                </p>
+                <p className="text-sm font-medium text-muted-foreground">Total Value</p>
+                <p className="text-2xl font-bold">₹{(stats?.total_value || 0).toLocaleString()}</p>
               </div>
-              <AlertTriangle className="h-8 w-8 text-red-500" />
+              <AlertTriangle className="h-8 w-8 text-purple-500" />
             </div>
           </CardContent>
         </Card>
@@ -154,7 +157,7 @@ export default function MaterialsPage() {
           <CardTitle>Filters</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div className="relative">
               <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
@@ -170,32 +173,31 @@ export default function MaterialsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="">All Categories</SelectItem>
-                <SelectItem value="flooring">Flooring</SelectItem>
-                <SelectItem value="countertops">Countertops</SelectItem>
-                <SelectItem value="lighting">Lighting</SelectItem>
-                <SelectItem value="paint">Paint</SelectItem>
-                <SelectItem value="tiles">Tiles</SelectItem>
+                {categories?.categories.map((category) => (
+                  <SelectItem key={category} value={category}>
+                    {category}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
-            <Select value={stockFilter} onValueChange={setStockFilter}>
-              <SelectTrigger>
-                <SelectValue placeholder="Filter by stock" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">All Stock</SelectItem>
-                <SelectItem value="available">In Stock</SelectItem>
-                <SelectItem value="low_stock">Low Stock</SelectItem>
-                <SelectItem value="out_of_stock">Out of Stock</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button 
-              variant="outline" 
-              onClick={() => {
-                setSearch('');
-                setCategoryFilter('');
-                setStockFilter('');
-              }}
-            >
+            <Input
+              placeholder="Filter by brand..."
+              value={brandFilter}
+              onChange={(e) => setBrandFilter(e.target.value)}
+            />
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="inStockOnly"
+                checked={inStockOnly}
+                onChange={(e) => setInStockOnly(e.target.checked)}
+                className="rounded"
+              />
+              <label htmlFor="inStockOnly" className="text-sm font-medium">
+                In Stock Only
+              </label>
+            </div>
+            <Button variant="outline" onClick={handleClearFilters}>
               Clear Filters
             </Button>
           </div>
@@ -205,7 +207,21 @@ export default function MaterialsPage() {
       {/* Materials Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Materials ({materials?.total?.toLocaleString() || 0})</CardTitle>
+          <div className="flex justify-between items-center">
+            <CardTitle>Materials ({materialsData?.total?.toLocaleString() || 0})</CardTitle>
+            <div className="flex space-x-2">
+              {page > 1 && (
+                <Button variant="outline" size="sm" onClick={() => setPage(page - 1)}>
+                  Previous
+                </Button>
+              )}
+              {materialsData && page < materialsData.total_pages && (
+                <Button variant="outline" size="sm" onClick={() => setPage(page + 1)}>
+                  Next
+                </Button>
+              )}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -232,60 +248,92 @@ export default function MaterialsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {materials?.materials?.map((material) => {
-                  const StockIcon = getStockIcon(material.status);
+                {materialsData?.materials?.map((material) => {
+                  const stockStatus = getStockStatus(material);
+                  const StockIcon = getStockIcon(stockStatus);
                   return (
                     <TableRow key={material.id}>
                       <TableCell>
                         <div>
                           <p className="font-medium">{material.name}</p>
                           <p className="text-sm text-muted-foreground">
-                            {material.category} • SKU: {material.sku}
+                            {material.category}
+                            {material.brand && ` • ${material.brand}`}
+                            {material.model && ` (${material.model})`}
                           </p>
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center space-x-3">
                           <Avatar className="h-8 w-8">
-                            <AvatarImage src={material.vendor.avatar} />
                             <AvatarFallback>
-                              {material.vendor.name.charAt(0)}
+                              {material.vendor?.company_name?.charAt(0) || 'V'}
                             </AvatarFallback>
                           </Avatar>
-                          <span className="font-medium">{material.vendor.name}</span>
+                          <div>
+                            <span className="font-medium">{material.vendor?.company_name}</span>
+                            {material.vendor?.is_verified && (
+                              <div className="flex items-center space-x-1">
+                                <CheckCircle className="h-3 w-3 text-green-500" />
+                                <span className="text-xs text-green-600">Verified</span>
+                              </div>
+                            )}
+                            {material.vendor?.rating && (
+                              <div className="flex items-center space-x-1">
+                                <Star className="h-3 w-3 text-yellow-500 fill-current" />
+                                <span className="text-xs">{material.vendor.rating.toFixed(1)}</span>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </TableCell>
                       <TableCell>
                         <div>
                           <p className="font-medium">₹{material.price.toLocaleString()}</p>
+                          {material.discounted_price && material.discounted_price < material.price && (
+                            <p className="text-sm text-green-600">
+                              Sale: ₹{material.discounted_price.toLocaleString()}
+                            </p>
+                          )}
                           <p className="text-sm text-muted-foreground">per {material.unit}</p>
                         </div>
                       </TableCell>
                       <TableCell>
                         <div>
-                          <p className="font-medium">{material.stock} {material.unit}</p>
+                          <p className="font-medium">{material.stock_quantity} {material.unit}</p>
                           <p className="text-sm text-muted-foreground">
-                            Min: {material.lowStockThreshold}
+                            Min: {material.min_order_quantity}
                           </p>
+                          {material.lead_time_days > 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              Lead: {material.lead_time_days} days
+                            </p>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center space-x-2">
                           <StockIcon className={`h-4 w-4 ${
-                            material.status === 'available' ? 'text-green-600' :
-                            material.status === 'low_stock' ? 'text-yellow-600' :
+                            stockStatus === 'available' ? 'text-green-600' :
+                            stockStatus === 'low_stock' ? 'text-yellow-600' :
                             'text-red-600'
                           }`} />
-                          <Badge variant="secondary" className={getStockColor(material.status)}>
-                            {material.status.replace('_', ' ')}
+                          <Badge variant="secondary" className={getStockColor(stockStatus)}>
+                            {stockStatus.replace('_', ' ')}
                           </Badge>
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex space-x-2">
-                          <Button variant="ghost" size="sm">View</Button>
-                          <Button variant="ghost" size="sm">Edit</Button>
-                          <Button variant="ghost" size="sm">Order</Button>
+                        <div className="flex space-x-1">
+                          <Button variant="ghost" size="sm">
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="sm">
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="sm">
+                            <ShoppingCart className="h-4 w-4" />
+                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>

@@ -208,7 +208,7 @@ export namespace auth {
         }
 
         /**
-         * Authenticates a user and returns a JWT token
+         * Simple login API - should work with CORS
          */
         public async login(params: RequestType<typeof api_auth_login_login>): Promise<ResponseType<typeof api_auth_login_login>> {
             // Now make the actual call to the API
@@ -926,9 +926,6 @@ export namespace users {
             this.listUsers = this.listUsers.bind(this)
         }
 
-        /**
-         * Gets the current user's profile and menu access
-         */
         public async getProfile(): Promise<ResponseType<typeof api_users_profile_getProfile>> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI(`/users/profile`, {method: "GET", body: undefined})

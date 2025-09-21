@@ -1,6 +1,7 @@
 import { ReactNode, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { DynamicMenu } from '../navigation/DynamicMenu';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -17,25 +18,9 @@ import {
   LogOut,
   Settings,
   User,
-  BarChart3,
-  Users,
-  FolderOpen,
-  TrendingUp,
-  DollarSign,
-  Truck,
-  Package,
 } from 'lucide-react';
 
-const iconMap = {
-  BarChart3,
-  Users,
-  FolderOpen,
-  TrendingUp,
-  DollarSign,
-  Truck,
-  Package,
-  Settings,
-} as const;
+
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -50,13 +35,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     return null;
   }
 
-  const getIconComponent = (iconName?: string) => {
-    if (!iconName || !(iconName in iconMap)) {
-      return BarChart3;
-    }
-    return iconMap[iconName as keyof typeof iconMap];
-  };
-
   const Sidebar = () => (
     <div className="flex h-full flex-col border-r bg-card">
       <div className="flex h-16 items-center border-b px-6">
@@ -68,49 +46,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         </Link>
       </div>
 
-      <div className="flex-1 overflow-auto py-4">
-        <nav className="space-y-1 px-3">
-          {user.menus.map((menu) => {
-            const IconComponent = getIconComponent(menu.icon);
-            const isActive = location.pathname === menu.path;
-
-            return (
-              <div key={menu.name}>
-                <Link
-                  to={menu.path || '/dashboard'}
-                  className={`flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-                    isActive
-                      ? 'bg-green-100 text-green-900 dark:bg-green-900 dark:text-green-100'
-                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-                  }`}
-                  onClick={() => setIsMobileMenuOpen(false)}
-                >
-                  <IconComponent className="mr-3 h-5 w-5" />
-                  {menu.displayName}
-                </Link>
-
-                {menu.children && menu.children.length > 0 && (
-                  <div className="ml-6 mt-1 space-y-1">
-                    {menu.children.map((child) => (
-                      <Link
-                        key={child.name}
-                        to={child.path || '/dashboard'}
-                        className={`flex items-center px-3 py-1 text-sm rounded-md transition-colors ${
-                          location.pathname === child.path
-                            ? 'bg-green-50 text-green-900 dark:bg-green-950 dark:text-green-100'
-                            : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-                        }`}
-                        onClick={() => setIsMobileMenuOpen(false)}
-                      >
-                        {child.displayName}
-                      </Link>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </nav>
+      <div className="flex-1 overflow-auto">
+        <DynamicMenu onItemClick={() => setIsMobileMenuOpen(false)} />
       </div>
 
       <div className="border-t p-4">
@@ -166,7 +103,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             </Sheet>
 
             <h1 className="text-xl font-semibold">
-              {user.menus.find(m => m.path === location.pathname)?.displayName || 'Dashboard'}
+              Dashboard
             </h1>
           </div>
 
