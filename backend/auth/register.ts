@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { secret } from "encore.dev/config";
 import db from "../db";
+import { ValidationService, UserValidationRules } from "../common/validation";
 
 const jwtSecret = secret("JWT_SECRET");
 
@@ -30,6 +31,17 @@ interface RegisterResponse {
 export const register = api<RegisterRequest, RegisterResponse>(
   { expose: true, method: "POST", path: "/auth/register" },
   async (req) => {
+    // Validate input
+    const validationData = {
+      email: req.email,
+      first_name: req.firstName,
+      last_name: req.lastName,
+      password: req.password,
+      phone: req.phone,
+      city: req.city
+    };
+    ValidationService.validateAndThrow(validationData, UserValidationRules.create);
+
     // Check if user already exists
     const existingUser = await db.queryRow`
       SELECT id FROM users WHERE email = ${req.email}

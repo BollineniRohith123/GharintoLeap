@@ -1,5 +1,6 @@
-import { api } from "encore.dev/api";
+import { api, APIError } from "encore.dev/api";
 import db from "../db";
+import { ValidationService, LeadValidationRules } from "../common/validation";
 
 interface CreateLeadRequest {
   source: string;
@@ -39,6 +40,23 @@ interface Lead {
 export const createLead = api<CreateLeadRequest, Lead>(
   { expose: true, method: "POST", path: "/leads" },
   async (req) => {
+    // Validate input
+    const validationData = {
+      source: req.source,
+      first_name: req.firstName,
+      last_name: req.lastName,
+      email: req.email,
+      phone: req.phone,
+      city: req.city,
+      budget_min: req.budgetMin,
+      budget_max: req.budgetMax,
+      project_type: req.projectType,
+      property_type: req.propertyType,
+      timeline: req.timeline,
+      description: req.description
+    };
+    ValidationService.validateAndThrow(validationData, LeadValidationRules.create);
+
     // Calculate lead score based on various factors
     let score = 0;
     
@@ -81,7 +99,7 @@ export const createLead = api<CreateLeadRequest, Lead>(
     `;
 
     if (!lead) {
-      throw new Error("Failed to create lead");
+      throw APIError.internal("Failed to create lead");
     }
 
     // Log the lead creation event

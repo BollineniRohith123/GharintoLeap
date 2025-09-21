@@ -1,7 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from '@/components/ui/toaster';
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 
 // Public pages
@@ -11,14 +11,7 @@ import RegisterPage from './pages/auth/RegisterPage';
 
 // Dashboard layouts
 import DashboardLayout from './components/layout/DashboardLayout';
-
-// Portal pages
-import SuperAdminDashboard from './pages/portals/SuperAdminDashboard';
-import AdminDashboard from './pages/portals/AdminDashboard';
-import ProjectManagerDashboard from './pages/portals/ProjectManagerDashboard';
-import InteriorDesignerDashboard from './pages/portals/InteriorDesignerDashboard';
-import CustomerDashboard from './pages/portals/CustomerDashboard';
-import VendorDashboard from './pages/portals/VendorDashboard';
+import RoleDashboard from './components/dashboard/RoleDashboard';
 
 // Feature pages
 import UsersPage from './pages/users/UsersPage';
@@ -54,7 +47,7 @@ function AppInner() {
             element={
               <ProtectedRoute>
                 <DashboardLayout>
-                  <RoleDashboard />
+                  <DashboardComponent />
                 </DashboardLayout>
               </ProtectedRoute>
             }
@@ -146,10 +139,11 @@ function AppInner() {
   );
 }
 
-function RoleDashboard() {
-  // This component renders the appropriate dashboard based on user role
-  // Implementation would check user roles and render accordingly
-  return <SuperAdminDashboard />;
+function DashboardComponent() {
+  const { user } = useAuth();
+  const primaryRole = user?.roles?.[0] || 'customer';
+  
+  return <RoleDashboard userRole={primaryRole} />;
 }
 
 export default function App() {

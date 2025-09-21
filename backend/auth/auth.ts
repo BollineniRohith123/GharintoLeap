@@ -1,4 +1,5 @@
-import { authHandler, Header, Cookie, APIError } from "encore.dev/api";
+import { Header, Cookie, APIError, Gateway } from "encore.dev/api";
+import { authHandler } from "encore.dev/auth";
 import jwt from "jsonwebtoken";
 import { secret } from "encore.dev/config";
 import db from "../db";
@@ -18,7 +19,7 @@ export interface AuthData {
 }
 
 export const auth = authHandler<AuthParams, AuthData>(
-  async (params) => {
+  async (params: AuthParams) => {
     const token = params.authorization?.replace("Bearer ", "") ?? params.session?.value;
     
     if (!token) {
@@ -59,5 +60,8 @@ export const auth = authHandler<AuthParams, AuthData>(
     }
   }
 );
+
+// Configure the API gateway to use the auth handler
+export const gw = new Gateway({ authHandler: auth });
 
 

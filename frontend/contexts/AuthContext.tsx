@@ -118,3 +118,6 @@ export function useAuth() {
   }
   return context;
 }
+
+// Alias for consistency
+export const useAuthContext = useAuth;
