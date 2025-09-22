@@ -14,8 +14,8 @@ const pool = new Pool({
   host: 'localhost',
   port: 5432,
   database: 'gharinto_dev',
-  user: process.env.DB_USER || process.env.USER,
-  password: process.env.DB_PASSWORD || '',
+  user: 'postgres',
+  password: 'postgres',
 });
 
 // Middleware - Configure CORS to allow credentials from frontend
