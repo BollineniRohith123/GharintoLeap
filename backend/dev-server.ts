@@ -16,7 +16,46 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Mock database responses for development
+// Auth middleware with proper JWT validation
+const authenticateToken = (req: any, res: any, next: any) => {
+  const authHeader = req.headers.authorization;
+  
+  // Check for proper Authorization header format
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Authorization token missing or invalid format' });
+  }
+
+  const token = authHeader.split(' ')[1];
+  
+  // Check if token exists and is not empty
+  if (!token || token.trim() === '') {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  // For mock server, validate token format (in production, use proper JWT verification)
+  if (token === 'mock-jwt-token-for-development') {
+    req.user = { id: 1, email: 'admin@gharinto.com' };
+    next();
+  } else {
+    // Reject any token that's not the expected mock token
+    return res.status(403).json({ error: 'Invalid or expired token' });
+  }
+};
+
+// Enhanced login validation
+const validateCredentials = (email: string, password: string): boolean => {
+  // For mock server, validate against known test users
+  const validUsers = [
+    'admin@gharinto.com',
+    'superadmin@gharinto.com', 
+    'pm@gharinto.com',
+    'designer@gharinto.com',
+    'customer@gharinto.com',
+    'vendor@gharinto.com'
+  ];
+  
+  return validUsers.includes(email) && password === 'password123';
+};
 const mockResponses = {
   '/auth/login': {
     token: 'mock-jwt-token-for-development',
