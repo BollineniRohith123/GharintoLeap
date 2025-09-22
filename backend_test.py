@@ -15,7 +15,7 @@ from typing import Dict, Any, List, Tuple
 API_BASE = 'http://localhost:4000'
 FRONTEND_ORIGIN = 'http://localhost:5173'
 
-# Test Users from review request
+# Test Users matching backend dev-server.ts validation
 TEST_USERS = [
     {'email': 'admin@gharinto.com', 'password': 'password123', 'role': 'System Admin'},
     {'email': 'superadmin@gharinto.com', 'password': 'password123', 'role': 'Super Admin'},
