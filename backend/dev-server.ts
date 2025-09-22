@@ -165,51 +165,26 @@ app.post('/auth/login', (req, res) => {
   }
 });
 
-app.get('/users/profile', (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (authHeader?.startsWith('Bearer ')) {
-    res.json(mockResponses['/users/profile']);
-  } else {
-    res.status(401).json({ error: 'Authorization required' });
-  }
+app.get('/users/profile', authenticateToken, (req, res) => {
+  res.json(mockResponses['/users/profile']);
 });
 
-app.get('/leads', (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (authHeader?.startsWith('Bearer ')) {
-    res.json(mockResponses['/leads']);
-  } else {
-    res.status(401).json({ error: 'Authorization required' });
-  }
+app.get('/leads', authenticateToken, (req, res) => {
+  res.json(mockResponses['/leads']);
 });
 
-app.get('/analytics/dashboard', (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (authHeader?.startsWith('Bearer ')) {
-    res.json(mockResponses['/analytics/dashboard']);
-  } else {
-    res.status(401).json({ error: 'Authorization required' });
-  }
+app.get('/analytics/dashboard', authenticateToken, (req, res) => {
+  res.json(mockResponses['/analytics/dashboard']);
 });
 
 // System/RBAC endpoints
-app.get('/rbac/user-permissions', (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (authHeader?.startsWith('Bearer ')) {
-    res.json(mockResponses['/rbac/user-permissions']);
-  } else {
-    res.status(401).json({ error: 'Authorization required' });
-  }
+app.get('/rbac/user-permissions', authenticateToken, (req, res) => {
+  res.json(mockResponses['/rbac/user-permissions']);
 });
 
 // Menu endpoints
-app.get('/menus/user', (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (authHeader?.startsWith('Bearer ')) {
-    res.json(mockResponses['/menus/user']);
-  } else {
-    res.status(401).json({ error: 'Authorization required' });
-  }
+app.get('/menus/user', authenticateToken, (req, res) => {
+  res.json(mockResponses['/menus/user']);
 });
 
 // Health check
