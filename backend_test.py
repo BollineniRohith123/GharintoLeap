@@ -15,14 +15,13 @@ from typing import Dict, Any, List, Tuple
 API_BASE = 'http://localhost:4000'
 FRONTEND_ORIGIN = 'http://localhost:5173'
 
-# Test Users matching backend dev-server.ts validation
+# Test Users matching database records (from review request)
 TEST_USERS = [
-    {'email': 'admin@gharinto.com', 'password': 'password123', 'role': 'System Admin'},
-    {'email': 'superadmin@gharinto.com', 'password': 'password123', 'role': 'Super Admin'},
-    {'email': 'pm@gharinto.com', 'password': 'password123', 'role': 'Project Manager'},
-    {'email': 'designer@gharinto.com', 'password': 'password123', 'role': 'Interior Designer'},
-    {'email': 'customer@gharinto.com', 'password': 'password123', 'role': 'Customer'},
-    {'email': 'vendor@gharinto.com', 'password': 'password123', 'role': 'Vendor'}
+    {'email': 'admin@test.com', 'password': 'password123', 'role': 'Admin'},
+    {'email': 'pm@test.com', 'password': 'password123', 'role': 'Project Manager'},
+    {'email': 'designer@test.com', 'password': 'password123', 'role': 'Interior Designer'},
+    {'email': 'customer@test.com', 'password': 'password123', 'role': 'Customer'},
+    {'email': 'vendor@test.com', 'password': 'password123', 'role': 'Vendor'}
 ]
 
 class Colors:
