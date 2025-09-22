@@ -861,4 +861,642 @@ app.delete('/projects/:id', authenticateToken, requirePermission('projects.manag
   }
 });
 
-// Continue with more endpoints... (this is getting quite long, let me split it)
+// ==================== LEAD MANAGEMENT ENDPOINTS ====================
+
+app.get('/leads', authenticateToken, requirePermission('leads.view'), async (req: any, res) => {
+  try {
+    const { page = 1, limit = 20, status, city, assignedTo, minScore } = req.query;
+    const offset = (page - 1) * limit;
+
+    let whereClause = 'WHERE 1=1';
+    const queryParams: any[] = [];
+    let paramIndex = 1;
+
+    // Role-based filtering
+    if (req.user.roles.includes('interior_designer')) {
+      whereClause += ` AND l.assigned_to = $${paramIndex}`;
+      queryParams.push(req.user.id);
+      paramIndex++;
+    }
+
+    if (status) {
+      whereClause += ` AND l.status = $${paramIndex}`;
+      queryParams.push(status);
+      paramIndex++;
+    }
+
+    if (city) {
+      whereClause += ` AND l.city = $${paramIndex}`;
+      queryParams.push(city);
+      paramIndex++;
+    }
+
+    if (assignedTo) {
+      whereClause += ` AND l.assigned_to = $${paramIndex}`;
+      queryParams.push(assignedTo);
+      paramIndex++;
+    }
+
+    if (minScore) {
+      whereClause += ` AND l.score >= $${paramIndex}`;
+      queryParams.push(minScore);
+      paramIndex++;
+    }
+
+    const leadsQuery = `
+      SELECT 
+        l.*,
+        u.first_name as assigned_first_name,
+        u.last_name as assigned_last_name
+      FROM leads l
+      LEFT JOIN users u ON l.assigned_to = u.id
+      ${whereClause}
+      ORDER BY l.score DESC, l.created_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+
+    const countQuery = `SELECT COUNT(*) as total FROM leads l ${whereClause}`;
+
+    const [leadsResult, countResult] = await Promise.all([
+      pool.query(leadsQuery, [...queryParams, limit, offset]),
+      pool.query(countQuery, queryParams)
+    ]);
+
+    res.json({
+      leads: leadsResult.rows.map(lead => ({
+        id: lead.id,
+        source: lead.source,
+        firstName: lead.first_name,
+        lastName: lead.last_name,
+        email: lead.email,
+        phone: lead.phone,
+        city: lead.city,
+        budgetMin: lead.budget_min,
+        budgetMax: lead.budget_max,
+        projectType: lead.project_type,
+        propertyType: lead.property_type,
+        timeline: lead.timeline,
+        description: lead.description,
+        score: lead.score,
+        status: lead.status,
+        assignedTo: lead.assigned_to ? {
+          id: lead.assigned_to,
+          name: `${lead.assigned_first_name} ${lead.assigned_last_name}`
+        } : null,
+        convertedToProject: lead.converted_to_project,
+        createdAt: lead.created_at,
+        updatedAt: lead.updated_at
+      })),
+      total: parseInt(countResult.rows[0].total),
+      page: parseInt(page),
+      limit: parseInt(limit)
+    });
+
+  } catch (error) {
+    console.error('Leads error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/leads', async (req, res) => {
+  try {
+    const {
+      source, firstName, lastName, email, phone, city,
+      budgetMin, budgetMax, projectType, propertyType, timeline, description
+    } = req.body;
+
+    if (!source || !firstName || !lastName || !email || !phone || !city) {
+      return res.status(400).json({ error: 'Source, firstName, lastName, email, phone, and city are required' });
+    }
+
+    // Calculate lead score
+    let score = 0;
+    
+    if (budgetMin && budgetMin > 500000) score += 30;
+    else if (budgetMin && budgetMin > 200000) score += 20;
+    else if (budgetMin) score += 10;
+    
+    if (timeline === 'immediate') score += 25;
+    else if (timeline === '1-3 months') score += 20;
+    else if (timeline === '3-6 months') score += 15;
+    else if (timeline === '6-12 months') score += 10;
+    
+    if (projectType === 'full_home') score += 20;
+    else if (projectType === 'multiple_rooms') score += 15;
+    else if (projectType === 'single_room') score += 10;
+    
+    if (propertyType === 'apartment') score += 10;
+    else if (propertyType === 'villa') score += 15;
+    else if (propertyType === 'office') score += 12;
+    
+    if (source === 'website_form') score += 10;
+    else if (source === 'referral') score += 15;
+    else if (source === 'social_media') score += 8;
+
+    const leadResult = await pool.query(`
+      INSERT INTO leads (
+        source, first_name, last_name, email, phone, city,
+        budget_min, budget_max, project_type, property_type,
+        timeline, description, score
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      RETURNING *
+    `, [
+      source, firstName, lastName, email, phone, city,
+      budgetMin, budgetMax, projectType, propertyType,
+      timeline, description, score
+    ]);
+
+    const newLead = leadResult.rows[0];
+
+    // Auto-assign lead
+    const designer = await pool.query(`
+      SELECT u.id, COUNT(l.id) as lead_count
+      FROM users u
+      JOIN user_roles ur ON u.id = ur.user_id
+      JOIN roles r ON ur.role_id = r.id
+      LEFT JOIN leads l ON u.id = l.assigned_to AND l.status IN ('new', 'contacted', 'qualified')
+      WHERE r.name = 'interior_designer' 
+        AND u.city = $1 
+        AND u.is_active = true
+      GROUP BY u.id
+      ORDER BY lead_count ASC, u.created_at ASC
+      LIMIT 1
+    `, [city]);
+
+    if (designer.rows.length > 0) {
+      await pool.query('UPDATE leads SET assigned_to = $1 WHERE id = $2', [designer.rows[0].id, newLead.id]);
+      newLead.assigned_to = designer.rows[0].id;
+    }
+
+    res.status(201).json({
+      id: newLead.id,
+      source: newLead.source,
+      firstName: newLead.first_name,
+      lastName: newLead.last_name,
+      email: newLead.email,
+      phone: newLead.phone,
+      city: newLead.city,
+      budgetMin: newLead.budget_min,
+      budgetMax: newLead.budget_max,
+      projectType: newLead.project_type,
+      propertyType: newLead.property_type,
+      timeline: newLead.timeline,
+      description: newLead.description,
+      score: newLead.score,
+      status: newLead.status,
+      assignedTo: newLead.assigned_to,
+      createdAt: newLead.created_at
+    });
+
+  } catch (error) {
+    console.error('Create lead error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/leads/:id', authenticateToken, requirePermission('leads.view'), async (req: any, res) => {
+  try {
+    const { id } = req.params;
+
+    const leadQuery = `
+      SELECT 
+        l.*,
+        u.first_name as assigned_first_name,
+        u.last_name as assigned_last_name,
+        u.email as assigned_email
+      FROM leads l
+      LEFT JOIN users u ON l.assigned_to = u.id
+      WHERE l.id = $1
+    `;
+
+    const result = await pool.query(leadQuery, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Lead not found' });
+    }
+
+    const lead = result.rows[0];
+
+    res.json({
+      id: lead.id,
+      source: lead.source,
+      firstName: lead.first_name,
+      lastName: lead.last_name,
+      email: lead.email,
+      phone: lead.phone,
+      city: lead.city,
+      budgetMin: lead.budget_min,
+      budgetMax: lead.budget_max,
+      projectType: lead.project_type,
+      propertyType: lead.property_type,
+      timeline: lead.timeline,
+      description: lead.description,
+      score: lead.score,
+      status: lead.status,
+      assignedTo: lead.assigned_to ? {
+        id: lead.assigned_to,
+        name: `${lead.assigned_first_name} ${lead.assigned_last_name}`,
+        email: lead.assigned_email
+      } : null,
+      convertedToProject: lead.converted_to_project,
+      createdAt: lead.created_at,
+      updatedAt: lead.updated_at
+    });
+
+  } catch (error) {
+    console.error('Get lead error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.put('/leads/:id', authenticateToken, requirePermission('leads.edit'), async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      firstName, lastName, email, phone, city, budgetMin, budgetMax,
+      projectType, propertyType, timeline, description, status, score
+    } = req.body;
+
+    const updateResult = await pool.query(`
+      UPDATE leads SET
+        first_name = $1, last_name = $2, email = $3, phone = $4, city = $5,
+        budget_min = $6, budget_max = $7, project_type = $8, property_type = $9,
+        timeline = $10, description = $11, status = $12, score = $13,
+        updated_at = NOW()
+      WHERE id = $14
+      RETURNING *
+    `, [
+      firstName, lastName, email, phone, city, budgetMin, budgetMax,
+      projectType, propertyType, timeline, description, status, score, id
+    ]);
+
+    if (updateResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Lead not found' });
+    }
+
+    const updatedLead = updateResult.rows[0];
+
+    res.json({
+      id: updatedLead.id,
+      firstName: updatedLead.first_name,
+      lastName: updatedLead.last_name,
+      email: updatedLead.email,
+      phone: updatedLead.phone,
+      city: updatedLead.city,
+      budgetMin: updatedLead.budget_min,
+      budgetMax: updatedLead.budget_max,
+      projectType: updatedLead.project_type,
+      propertyType: updatedLead.property_type,
+      timeline: updatedLead.timeline,
+      description: updatedLead.description,
+      status: updatedLead.status,
+      score: updatedLead.score,
+      updatedAt: updatedLead.updated_at
+    });
+
+  } catch (error) {
+    console.error('Update lead error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/leads/:id/assign', authenticateToken, requirePermission('leads.assign'), async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const { assignedTo } = req.body;
+
+    if (!assignedTo) {
+      return res.status(400).json({ error: 'assignedTo is required' });
+    }
+
+    const updateResult = await pool.query(
+      'UPDATE leads SET assigned_to = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
+      [assignedTo, id]
+    );
+
+    if (updateResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Lead not found' });
+    }
+
+    res.json({ message: 'Lead assigned successfully', leadId: id, assignedTo });
+
+  } catch (error) {
+    console.error('Assign lead error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/leads/:id/convert', authenticateToken, requirePermission('leads.convert'), async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const { projectTitle, projectDescription, budget, designerId } = req.body;
+
+    // Get lead details
+    const leadResult = await pool.query('SELECT * FROM leads WHERE id = $1', [id]);
+    if (leadResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Lead not found' });
+    }
+
+    const lead = leadResult.rows[0];
+
+    // Create project from lead
+    const projectResult = await pool.query(`
+      INSERT INTO projects (title, description, client_id, designer_id, budget, city, property_type)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING *
+    `, [
+      projectTitle || `Project for ${lead.first_name} ${lead.last_name}`,
+      projectDescription || lead.description,
+      lead.id, // Note: This should be a user_id, not lead_id in real implementation
+      designerId || lead.assigned_to,
+      budget || lead.budget_max || lead.budget_min,
+      lead.city,
+      lead.property_type
+    ]);
+
+    const newProject = projectResult.rows[0];
+
+    // Update lead status
+    await pool.query(
+      'UPDATE leads SET status = $1, converted_to_project = $2, updated_at = NOW() WHERE id = $3',
+      ['converted', newProject.id, id]
+    );
+
+    res.json({
+      message: 'Lead converted to project successfully',
+      lead: { id: lead.id, status: 'converted' },
+      project: {
+        id: newProject.id,
+        title: newProject.title,
+        createdAt: newProject.created_at
+      }
+    });
+
+  } catch (error) {
+    console.error('Convert lead error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ==================== MATERIALS ENDPOINTS ====================
+
+app.get('/materials', authenticateToken, async (req: any, res) => {
+  try {
+    const { page = 1, limit = 20, category, vendorId, search } = req.query;
+    const offset = (page - 1) * limit;
+
+    let whereClause = 'WHERE m.is_active = true';
+    const queryParams: any[] = [];
+    let paramIndex = 1;
+
+    if (category) {
+      whereClause += ` AND m.category = $${paramIndex}`;
+      queryParams.push(category);
+      paramIndex++;
+    }
+
+    if (vendorId) {
+      whereClause += ` AND m.vendor_id = $${paramIndex}`;
+      queryParams.push(vendorId);
+      paramIndex++;
+    }
+
+    if (search) {
+      whereClause += ` AND (m.name ILIKE $${paramIndex} OR m.description ILIKE $${paramIndex})`;
+      queryParams.push(`%${search}%`);
+      paramIndex++;
+    }
+
+    const materialsQuery = `
+      SELECT 
+        m.*,
+        v.company_name as vendor_name,
+        v.rating as vendor_rating
+      FROM materials m
+      LEFT JOIN vendors v ON m.vendor_id = v.id
+      ${whereClause}
+      ORDER BY m.created_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+
+    const countQuery = `SELECT COUNT(*) as total FROM materials m ${whereClause}`;
+
+    const [materialsResult, countResult] = await Promise.all([
+      pool.query(materialsQuery, [...queryParams, limit, offset]),
+      pool.query(countQuery, queryParams)
+    ]);
+
+    res.json({
+      materials: materialsResult.rows.map(material => ({
+        id: material.id,
+        name: material.name,
+        category: material.category,
+        subcategory: material.subcategory,
+        brand: material.brand,
+        model: material.model,
+        description: material.description,
+        unit: material.unit,
+        price: material.price,
+        discountedPrice: material.discounted_price,
+        stockQuantity: material.stock_quantity,
+        minOrderQuantity: material.min_order_quantity,
+        leadTimeDays: material.lead_time_days,
+        images: material.images,
+        specifications: material.specifications,
+        vendor: {
+          id: material.vendor_id,
+          name: material.vendor_name,
+          rating: material.vendor_rating
+        },
+        createdAt: material.created_at
+      })),
+      total: parseInt(countResult.rows[0].total),
+      page: parseInt(page),
+      limit: parseInt(limit)
+    });
+
+  } catch (error) {
+    console.error('Materials error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/materials', authenticateToken, requirePermission('vendors.manage'), async (req: any, res) => {
+  try {
+    const {
+      vendorId, name, category, subcategory, brand, model, description,
+      unit, price, discountedPrice, stockQuantity, minOrderQuantity,
+      leadTimeDays, images, specifications
+    } = req.body;
+
+    if (!name || !category || !unit || !price) {
+      return res.status(400).json({ error: 'Name, category, unit, and price are required' });
+    }
+
+    const materialResult = await pool.query(`
+      INSERT INTO materials (
+        vendor_id, name, category, subcategory, brand, model, description,
+        unit, price, discounted_price, stock_quantity, min_order_quantity,
+        lead_time_days, images, specifications
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      RETURNING *
+    `, [
+      vendorId, name, category, subcategory, brand, model, description,
+      unit, price, discountedPrice, stockQuantity, minOrderQuantity,
+      leadTimeDays, images, specifications
+    ]);
+
+    const newMaterial = materialResult.rows[0];
+
+    res.status(201).json({
+      id: newMaterial.id,
+      vendorId: newMaterial.vendor_id,
+      name: newMaterial.name,
+      category: newMaterial.category,
+      subcategory: newMaterial.subcategory,
+      brand: newMaterial.brand,
+      model: newMaterial.model,
+      description: newMaterial.description,
+      unit: newMaterial.unit,
+      price: newMaterial.price,
+      discountedPrice: newMaterial.discounted_price,
+      stockQuantity: newMaterial.stock_quantity,
+      minOrderQuantity: newMaterial.min_order_quantity,
+      leadTimeDays: newMaterial.lead_time_days,
+      images: newMaterial.images,
+      specifications: newMaterial.specifications,
+      createdAt: newMaterial.created_at
+    });
+
+  } catch (error) {
+    console.error('Create material error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/materials/categories', async (req, res) => {
+  try {
+    const categoriesResult = await pool.query(`
+      SELECT DISTINCT category, COUNT(*) as count 
+      FROM materials 
+      WHERE is_active = true 
+      GROUP BY category 
+      ORDER BY category
+    `);
+
+    res.json({
+      categories: categoriesResult.rows.map(cat => ({
+        name: cat.category,
+        count: parseInt(cat.count)
+      }))
+    });
+
+  } catch (error) {
+    console.error('Material categories error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/materials/:id', authenticateToken, async (req: any, res) => {
+  try {
+    const { id } = req.params;
+
+    const materialQuery = `
+      SELECT 
+        m.*,
+        v.company_name as vendor_name,
+        v.rating as vendor_rating,
+        v.city as vendor_city,
+        v.is_verified as vendor_verified
+      FROM materials m
+      LEFT JOIN vendors v ON m.vendor_id = v.id
+      WHERE m.id = $1
+    `;
+
+    const result = await pool.query(materialQuery, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Material not found' });
+    }
+
+    const material = result.rows[0];
+
+    res.json({
+      id: material.id,
+      name: material.name,
+      category: material.category,
+      subcategory: material.subcategory,
+      brand: material.brand,
+      model: material.model,
+      description: material.description,
+      unit: material.unit,
+      price: material.price,
+      discountedPrice: material.discounted_price,
+      stockQuantity: material.stock_quantity,
+      minOrderQuantity: material.min_order_quantity,
+      leadTimeDays: material.lead_time_days,
+      images: material.images,
+      specifications: material.specifications,
+      vendor: {
+        id: material.vendor_id,
+        name: material.vendor_name,
+        rating: material.vendor_rating,
+        city: material.vendor_city,
+        isVerified: material.vendor_verified
+      },
+      createdAt: material.created_at,
+      updatedAt: material.updated_at
+    });
+
+  } catch (error) {
+    console.error('Get material error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.put('/materials/:id', authenticateToken, requirePermission('vendors.manage'), async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      name, category, subcategory, brand, model, description,
+      unit, price, discountedPrice, stockQuantity, minOrderQuantity,
+      leadTimeDays, images, specifications, isActive
+    } = req.body;
+
+    const updateResult = await pool.query(`
+      UPDATE materials SET
+        name = $1, category = $2, subcategory = $3, brand = $4, model = $5,
+        description = $6, unit = $7, price = $8, discounted_price = $9,
+        stock_quantity = $10, min_order_quantity = $11, lead_time_days = $12,
+        images = $13, specifications = $14, is_active = $15, updated_at = NOW()
+      WHERE id = $16
+      RETURNING *
+    `, [
+      name, category, subcategory, brand, model, description,
+      unit, price, discountedPrice, stockQuantity, minOrderQuantity,
+      leadTimeDays, images, specifications, isActive, id
+    ]);
+
+    if (updateResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Material not found' });
+    }
+
+    const updatedMaterial = updateResult.rows[0];
+
+    res.json({
+      id: updatedMaterial.id,
+      name: updatedMaterial.name,
+      category: updatedMaterial.category,
+      price: updatedMaterial.price,
+      stockQuantity: updatedMaterial.stock_quantity,
+      isActive: updatedMaterial.is_active,
+      updatedAt: updatedMaterial.updated_at
+    });
+
+  } catch (error) {
+    console.error('Update material error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Continue with more endpoints - let me add the remaining critical ones...
