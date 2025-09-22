@@ -169,7 +169,7 @@ class SecurityTester:
         for origin in test_origins:
             success, data, status = api_request('/auth/login', 'POST', 
                 headers={'Origin': origin},
-                data={'email': 'admin@gharinto.com', 'password': 'password123'}
+                data={'email': 'admin@test.com', 'password': 'password123'}
             )
             
             if success:
