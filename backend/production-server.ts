@@ -1499,4 +1499,642 @@ app.put('/materials/:id', authenticateToken, requirePermission('vendors.manage')
   }
 });
 
-// Continue with more endpoints - let me add the remaining critical ones...
+// ==================== VENDOR MANAGEMENT ENDPOINTS ====================
+
+app.get('/vendors', authenticateToken, requirePermission('vendors.view'), async (req: any, res) => {
+  try {
+    const { page = 1, limit = 20, city, businessType, isVerified } = req.query;
+    const offset = (page - 1) * limit;
+
+    let whereClause = 'WHERE 1=1';
+    const queryParams: any[] = [];
+    let paramIndex = 1;
+
+    if (city) {
+      whereClause += ` AND v.city = $${paramIndex}`;
+      queryParams.push(city);
+      paramIndex++;
+    }
+
+    if (businessType) {
+      whereClause += ` AND v.business_type = $${paramIndex}`;
+      queryParams.push(businessType);
+      paramIndex++;
+    }
+
+    if (isVerified !== undefined) {
+      whereClause += ` AND v.is_verified = $${paramIndex}`;
+      queryParams.push(isVerified === 'true');
+      paramIndex++;
+    }
+
+    const vendorsQuery = `
+      SELECT 
+        v.*,
+        u.first_name, u.last_name, u.email, u.phone,
+        COUNT(m.id) as material_count
+      FROM vendors v
+      JOIN users u ON v.user_id = u.id
+      LEFT JOIN materials m ON v.id = m.vendor_id AND m.is_active = true
+      ${whereClause}
+      GROUP BY v.id, u.first_name, u.last_name, u.email, u.phone
+      ORDER BY v.rating DESC, v.created_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+
+    const countQuery = `SELECT COUNT(*) as total FROM vendors v ${whereClause}`;
+
+    const [vendorsResult, countResult] = await Promise.all([
+      pool.query(vendorsQuery, [...queryParams, limit, offset]),
+      pool.query(countQuery, queryParams)
+    ]);
+
+    res.json({
+      vendors: vendorsResult.rows.map(vendor => ({
+        id: vendor.id,
+        userId: vendor.user_id,
+        companyName: vendor.company_name,
+        businessType: vendor.business_type,
+        gstNumber: vendor.gst_number,
+        panNumber: vendor.pan_number,
+        address: vendor.address,
+        city: vendor.city,
+        state: vendor.state,
+        pincode: vendor.pincode,
+        isVerified: vendor.is_verified,
+        rating: vendor.rating,
+        totalOrders: vendor.total_orders,
+        materialCount: parseInt(vendor.material_count),
+        contact: {
+          name: `${vendor.first_name} ${vendor.last_name}`,
+          email: vendor.email,
+          phone: vendor.phone
+        },
+        createdAt: vendor.created_at
+      })),
+      total: parseInt(countResult.rows[0].total),
+      page: parseInt(page),
+      limit: parseInt(limit)
+    });
+
+  } catch (error) {
+    console.error('Vendors error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/vendors', authenticateToken, requirePermission('vendors.manage'), async (req: any, res) => {
+  try {
+    const {
+      userId, companyName, businessType, gstNumber, panNumber,
+      address, city, state, pincode
+    } = req.body;
+
+    if (!userId || !companyName || !businessType) {
+      return res.status(400).json({ error: 'userId, companyName, and businessType are required' });
+    }
+
+    const vendorResult = await pool.query(`
+      INSERT INTO vendors (
+        user_id, company_name, business_type, gst_number, pan_number,
+        address, city, state, pincode
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING *
+    `, [userId, companyName, businessType, gstNumber, panNumber, address, city, state, pincode]);
+
+    const newVendor = vendorResult.rows[0];
+
+    res.status(201).json({
+      id: newVendor.id,
+      userId: newVendor.user_id,
+      companyName: newVendor.company_name,
+      businessType: newVendor.business_type,
+      city: newVendor.city,
+      state: newVendor.state,
+      isVerified: newVendor.is_verified,
+      rating: newVendor.rating,
+      createdAt: newVendor.created_at
+    });
+
+  } catch (error) {
+    console.error('Create vendor error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/vendors/:id', authenticateToken, requirePermission('vendors.view'), async (req: any, res) => {
+  try {
+    const { id } = req.params;
+
+    const vendorQuery = `
+      SELECT 
+        v.*,
+        u.first_name, u.last_name, u.email, u.phone
+      FROM vendors v
+      JOIN users u ON v.user_id = u.id
+      WHERE v.id = $1
+    `;
+
+    const result = await pool.query(vendorQuery, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Vendor not found' });
+    }
+
+    const vendor = result.rows[0];
+
+    res.json({
+      id: vendor.id,
+      userId: vendor.user_id,
+      companyName: vendor.company_name,
+      businessType: vendor.business_type,
+      gstNumber: vendor.gst_number,
+      panNumber: vendor.pan_number,
+      address: vendor.address,
+      city: vendor.city,
+      state: vendor.state,
+      pincode: vendor.pincode,
+      isVerified: vendor.is_verified,
+      rating: vendor.rating,
+      totalOrders: vendor.total_orders,
+      contact: {
+        name: `${vendor.first_name} ${vendor.last_name}`,
+        email: vendor.email,
+        phone: vendor.phone
+      },
+      createdAt: vendor.created_at,
+      updatedAt: vendor.updated_at
+    });
+
+  } catch (error) {
+    console.error('Get vendor error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/vendors/:id/materials', authenticateToken, async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const { page = 1, limit = 20 } = req.query;
+    const offset = (page - 1) * limit;
+
+    const materialsQuery = `
+      SELECT * FROM materials 
+      WHERE vendor_id = $1 AND is_active = true
+      ORDER BY created_at DESC
+      LIMIT $2 OFFSET $3
+    `;
+
+    const countQuery = `SELECT COUNT(*) as total FROM materials WHERE vendor_id = $1 AND is_active = true`;
+
+    const [materialsResult, countResult] = await Promise.all([
+      pool.query(materialsQuery, [id, limit, offset]),
+      pool.query(countQuery, [id])
+    ]);
+
+    res.json({
+      materials: materialsResult.rows.map(material => ({
+        id: material.id,
+        name: material.name,
+        category: material.category,
+        price: material.price,
+        stockQuantity: material.stock_quantity,
+        unit: material.unit,
+        createdAt: material.created_at
+      })),
+      total: parseInt(countResult.rows[0].total),
+      page: parseInt(page),
+      limit: parseInt(limit)
+    });
+
+  } catch (error) {
+    console.error('Vendor materials error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ==================== FILE MANAGEMENT ENDPOINTS ====================
+
+app.post('/files/upload', authenticateToken, upload.single('file'), async (req: any, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const { entityType, entityId } = req.body;
+
+    const fileRecord = await pool.query(`
+      INSERT INTO file_uploads (
+        id, user_id, filename, original_name, file_path, file_size, mime_type,
+        entity_type, entity_id
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING *
+    `, [
+      req.file.filename,
+      req.user.id,
+      req.file.filename,
+      req.file.originalname,
+      req.file.path,
+      req.file.size,
+      req.file.mimetype,
+      entityType,
+      entityId
+    ]);
+
+    const newFile = fileRecord.rows[0];
+
+    res.status(201).json({
+      id: newFile.id,
+      filename: newFile.filename,
+      originalName: newFile.original_name,
+      fileSize: newFile.file_size,
+      mimeType: newFile.mime_type,
+      entityType: newFile.entity_type,
+      entityId: newFile.entity_id,
+      createdAt: newFile.created_at
+    });
+
+  } catch (error) {
+    console.error('File upload error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/files', authenticateToken, async (req: any, res) => {
+  try {
+    const { entityType, entityId, page = 1, limit = 20 } = req.query;
+    const offset = (page - 1) * limit;
+
+    let whereClause = 'WHERE user_id = $1';
+    const queryParams: any[] = [req.user.id];
+    let paramIndex = 2;
+
+    if (entityType) {
+      whereClause += ` AND entity_type = $${paramIndex}`;
+      queryParams.push(entityType);
+      paramIndex++;
+    }
+
+    if (entityId) {
+      whereClause += ` AND entity_id = $${paramIndex}`;
+      queryParams.push(entityId);
+      paramIndex++;
+    }
+
+    const filesQuery = `
+      SELECT * FROM file_uploads 
+      ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+
+    const countQuery = `SELECT COUNT(*) as total FROM file_uploads ${whereClause}`;
+
+    const [filesResult, countResult] = await Promise.all([
+      pool.query(filesQuery, [...queryParams, limit, offset]),
+      pool.query(countQuery, queryParams)
+    ]);
+
+    res.json({
+      files: filesResult.rows.map(file => ({
+        id: file.id,
+        filename: file.filename,
+        originalName: file.original_name,
+        fileSize: file.file_size,
+        mimeType: file.mime_type,
+        entityType: file.entity_type,
+        entityId: file.entity_id,
+        createdAt: file.created_at
+      })),
+      total: parseInt(countResult.rows[0].total),
+      page: parseInt(page),
+      limit: parseInt(limit)
+    });
+
+  } catch (error) {
+    console.error('Files list error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ==================== ANALYTICS ENDPOINTS ====================
+
+app.get('/analytics/dashboard', authenticateToken, async (req: any, res) => {
+  try {
+    const queries = {
+      totalLeads: `SELECT COUNT(*) as count FROM leads`,
+      totalProjects: `SELECT COUNT(*) as count FROM projects`,
+      totalRevenue: `SELECT COALESCE(SUM(actual_cost), 0) as sum FROM projects WHERE status = 'completed'`,
+      activeProjects: `SELECT COUNT(*) as count FROM projects WHERE status IN ('in_progress', 'planning')`,
+      leadsThisMonth: `SELECT COUNT(*) as count FROM leads WHERE created_at >= date_trunc('month', CURRENT_DATE)`,
+      projectsThisMonth: `SELECT COUNT(*) as count FROM projects WHERE created_at >= date_trunc('month', CURRENT_DATE)`,
+      revenueThisMonth: `SELECT COALESCE(SUM(actual_cost), 0) as sum FROM projects WHERE status = 'completed' AND updated_at >= date_trunc('month', CURRENT_DATE)`
+    };
+
+    const results = await Promise.all([
+      pool.query(queries.totalLeads),
+      pool.query(queries.totalProjects),
+      pool.query(queries.totalRevenue),
+      pool.query(queries.activeProjects),
+      pool.query(queries.leadsThisMonth),
+      pool.query(queries.projectsThisMonth),
+      pool.query(queries.revenueThisMonth)
+    ]);
+
+    const totalLeads = parseInt(results[0].rows[0].count);
+    const totalProjects = parseInt(results[1].rows[0].count);
+    const conversionRate = totalLeads > 0 ? ((totalProjects / totalLeads) * 100).toFixed(1) : 0;
+
+    res.json({
+      totalLeads,
+      totalProjects,
+      totalRevenue: parseInt(results[2].rows[0].sum),
+      activeProjects: parseInt(results[3].rows[0].count),
+      conversionRate: parseFloat(String(conversionRate)),
+      leadsThisMonth: parseInt(results[4].rows[0].count),
+      projectsThisMonth: parseInt(results[5].rows[0].count),
+      revenueThisMonth: parseInt(results[6].rows[0].sum)
+    });
+
+  } catch (error) {
+    console.error('Analytics error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/analytics/leads', authenticateToken, requirePermission('analytics.view'), async (req: any, res) => {
+  try {
+    const statusStats = await pool.query(`
+      SELECT status, COUNT(*) as count 
+      FROM leads 
+      GROUP BY status 
+      ORDER BY count DESC
+    `);
+
+    const sourceStats = await pool.query(`
+      SELECT source, COUNT(*) as count 
+      FROM leads 
+      GROUP BY source 
+      ORDER BY count DESC
+    `);
+
+    const cityStats = await pool.query(`
+      SELECT city, COUNT(*) as count 
+      FROM leads 
+      GROUP BY city 
+      ORDER BY count DESC
+      LIMIT 10
+    `);
+
+    const monthlyTrend = await pool.query(`
+      SELECT 
+        DATE_TRUNC('month', created_at) as month,
+        COUNT(*) as count
+      FROM leads 
+      WHERE created_at >= NOW() - INTERVAL '12 months'
+      GROUP BY DATE_TRUNC('month', created_at)
+      ORDER BY month
+    `);
+
+    res.json({
+      statusDistribution: statusStats.rows,
+      sourceDistribution: sourceStats.rows,
+      topCities: cityStats.rows,
+      monthlyTrend: monthlyTrend.rows
+    });
+
+  } catch (error) {
+    console.error('Lead analytics error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/analytics/projects', authenticateToken, requirePermission('analytics.view'), async (req: any, res) => {
+  try {
+    const statusStats = await pool.query(`
+      SELECT status, COUNT(*) as count 
+      FROM projects 
+      GROUP BY status 
+      ORDER BY count DESC
+    `);
+
+    const budgetStats = await pool.query(`
+      SELECT 
+        CASE 
+          WHEN budget < 200000 THEN 'Under 2L'
+          WHEN budget < 500000 THEN '2L-5L'
+          WHEN budget < 1000000 THEN '5L-10L'
+          ELSE 'Above 10L'
+        END as budget_range,
+        COUNT(*) as count
+      FROM projects 
+      GROUP BY budget_range
+      ORDER BY count DESC
+    `);
+
+    const monthlyRevenue = await pool.query(`
+      SELECT 
+        DATE_TRUNC('month', updated_at) as month,
+        SUM(actual_cost) as revenue
+      FROM projects 
+      WHERE status = 'completed' AND updated_at >= NOW() - INTERVAL '12 months'
+      GROUP BY DATE_TRUNC('month', updated_at)
+      ORDER BY month
+    `);
+
+    res.json({
+      statusDistribution: statusStats.rows,
+      budgetDistribution: budgetStats.rows,
+      monthlyRevenue: monthlyRevenue.rows
+    });
+
+  } catch (error) {
+    console.error('Project analytics error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ==================== RBAC & SYSTEM ENDPOINTS ====================
+
+app.get('/rbac/user-permissions', authenticateToken, async (req: any, res) => {
+  try {
+    const permissionQuery = `
+      SELECT ARRAY_AGG(DISTINCT p.name) as permissions
+      FROM permissions p
+      JOIN role_permissions rp ON p.id = rp.permission_id
+      JOIN user_roles ur ON rp.role_id = ur.role_id
+      WHERE ur.user_id = $1
+    `;
+
+    const result = await pool.query(permissionQuery, [req.user.id]);
+    
+    res.json({
+      permissions: result.rows[0]?.permissions?.filter((p: any) => p) || []
+    });
+
+  } catch (error) {
+    console.error('Permissions error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/menus/user', authenticateToken, async (req: any, res) => {
+  try {
+    const menuQuery = `
+      SELECT DISTINCT m.name, m.display_name, m.icon, m.path, m.sort_order
+      FROM menus m
+      JOIN role_menus rm ON m.id = rm.menu_id
+      JOIN user_roles ur ON rm.role_id = ur.role_id
+      WHERE ur.user_id = $1 AND m.is_active = true AND rm.can_view = true
+      ORDER BY m.sort_order, m.display_name
+    `;
+
+    const result = await pool.query(menuQuery, [req.user.id]);
+
+    res.json({
+      menus: result.rows.map(menu => ({
+        name: menu.name,
+        displayName: menu.display_name,
+        icon: menu.icon,
+        path: menu.path
+      }))
+    });
+
+  } catch (error) {
+    console.error('Menus error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ==================== SEARCH ENDPOINTS ====================
+
+app.get('/search', authenticateToken, async (req: any, res) => {
+  try {
+    const { q, type } = req.query;
+
+    if (!q) {
+      return res.status(400).json({ error: 'Search query is required' });
+    }
+
+    const results: any = {};
+
+    if (!type || type === 'projects') {
+      const projectsResult = await pool.query(`
+        SELECT id, title, status, city 
+        FROM projects 
+        WHERE title ILIKE $1 OR description ILIKE $1
+        LIMIT 5
+      `, [`%${q}%`]);
+      results.projects = projectsResult.rows;
+    }
+
+    if (!type || type === 'leads') {
+      const leadsResult = await pool.query(`
+        SELECT id, first_name, last_name, email, city, status 
+        FROM leads 
+        WHERE first_name ILIKE $1 OR last_name ILIKE $1 OR email ILIKE $1
+        LIMIT 5
+      `, [`%${q}%`]);
+      results.leads = leadsResult.rows;
+    }
+
+    if (!type || type === 'users') {
+      const usersResult = await pool.query(`
+        SELECT id, first_name, last_name, email, city 
+        FROM users 
+        WHERE first_name ILIKE $1 OR last_name ILIKE $1 OR email ILIKE $1
+        LIMIT 5
+      `, [`%${q}%`]);
+      results.users = usersResult.rows;
+    }
+
+    if (!type || type === 'materials') {
+      const materialsResult = await pool.query(`
+        SELECT id, name, category, price, unit 
+        FROM materials 
+        WHERE name ILIKE $1 OR description ILIKE $1 AND is_active = true
+        LIMIT 5
+      `, [`%${q}%`]);
+      results.materials = materialsResult.rows;
+    }
+
+    res.json(results);
+
+  } catch (error) {
+    console.error('Search error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ==================== HEALTH CHECK ENDPOINTS ====================
+
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    database: 'connected' 
+  });
+});
+
+app.get('/health/db', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT NOW()');
+    res.json({ 
+      status: 'ok', 
+      database: 'connected',
+      timestamp: result.rows[0].now 
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      status: 'error', 
+      database: 'disconnected',
+      error: (error as Error).message 
+    });
+  }
+});
+
+// ==================== ERROR HANDLING ====================
+
+app.use((req, res) => {
+  console.log('Unhandled request:', req.method, req.originalUrl);
+  res.status(404).json({ error: 'Endpoint not found', path: req.originalUrl });
+});
+
+app.use((error: any, req: any, res: any, next: any) => {
+  console.error('Unhandled error:', error);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+// ==================== START SERVER ====================
+
+app.listen(PORT, () => {
+  console.log(`🚀 Production server running on http://localhost:${PORT}`);
+  console.log('📝 Available endpoints:');
+  console.log('  🔐 Authentication:');
+  console.log('    POST /auth/login');
+  console.log('  👥 User Management:');
+  console.log('    GET  /users/profile, GET /users, POST /users, GET /users/:id, PUT /users/:id, DELETE /users/:id');
+  console.log('  📁 Project Management:');
+  console.log('    GET  /projects, POST /projects, GET /projects/:id, PUT /projects/:id, DELETE /projects/:id');
+  console.log('  🎯 Lead Management:');
+  console.log('    GET  /leads, POST /leads, GET /leads/:id, PUT /leads/:id, POST /leads/:id/assign, POST /leads/:id/convert');
+  console.log('  🏗️  Materials:');
+  console.log('    GET  /materials, POST /materials, GET /materials/categories, GET /materials/:id, PUT /materials/:id');
+  console.log('  🏢 Vendor Management:');
+  console.log('    GET  /vendors, POST /vendors, GET /vendors/:id, GET /vendors/:id/materials');
+  console.log('  📊 Analytics:');
+  console.log('    GET  /analytics/dashboard, GET /analytics/leads, GET /analytics/projects');
+  console.log('  🔍 Search:');
+  console.log('    GET  /search');
+  console.log('  📎 Files:');
+  console.log('    POST /files/upload, GET /files');
+  console.log('  🛡️  RBAC:');
+  console.log('    GET  /rbac/user-permissions, GET /menus/user');
+  console.log('  ❤️  Health:');
+  console.log('    GET  /health, GET /health/db');
+  console.log('\n✨ Frontend should connect to: http://localhost:4000');
+  console.log('💾 Database: PostgreSQL (gharinto_dev)');
+  console.log('🎯 API Coverage: 40+ endpoints implemented');
+});
+
+export default app;
