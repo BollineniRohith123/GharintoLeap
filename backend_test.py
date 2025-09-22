@@ -87,7 +87,7 @@ class SecurityTester:
         
         # First get a valid token
         success, data, status = api_request('/auth/login', 'POST', data={
-            'email': 'admin@gharinto.com',
+            'email': 'admin@test.com',
             'password': 'password123'
         })
         
