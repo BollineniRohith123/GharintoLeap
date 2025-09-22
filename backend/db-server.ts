@@ -86,13 +86,9 @@ app.post('/auth/login', async (req, res) => {
       passwordHashLength: user.password_hash?.length 
     });
 
-    // Verify password - TEMPORARY: bypass verification for testing
-    console.log('🔒 Password verification - TEMPORARILY BYPASSED for testing');
-    let isValidPassword = true;
-    
-    // Uncomment when password hashes are fixed:
-    // const isValidPassword = await bcrypt.compare(password, user.password_hash);
-    
+    // Verify password
+    console.log('🔒 Verifying password...');
+    const isValidPassword = await bcrypt.compare(password, user.password_hash);
     console.log('🔒 Password verification result:', isValidPassword);
     
     if (!isValidPassword) {

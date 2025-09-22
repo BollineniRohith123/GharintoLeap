@@ -1,5 +1,6 @@
-const bcrypt = require('bcryptjs');
-const { Pool } = require('pg');
+import bcrypt from 'bcryptjs';
+import pkg from 'pg';
+const { Pool } = pkg;
 
 const pool = new Pool({
   host: 'localhost',
