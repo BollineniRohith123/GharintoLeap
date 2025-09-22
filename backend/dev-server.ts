@@ -134,10 +134,34 @@ app.post('/auth/login', (req, res) => {
   const { email, password } = req.body;
   console.log('Login attempt:', { email, password });
   
-  if (email && password) {
-    res.json(mockResponses['/auth/login']);
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password required' });
+  }
+  
+  // Validate credentials against known test users
+  if (validateCredentials(email, password)) {
+    // Return role-specific data based on email
+    const userRoles = {
+      'admin@gharinto.com': ['admin'],
+      'superadmin@gharinto.com': ['super_admin'],
+      'pm@gharinto.com': ['project_manager'],
+      'designer@gharinto.com': ['interior_designer'],
+      'customer@gharinto.com': ['customer'],
+      'vendor@gharinto.com': ['vendor']
+    };
+    
+    const roles = userRoles[email] || ['customer'];
+    
+    res.json({
+      ...mockResponses['/auth/login'],
+      user: {
+        ...mockResponses['/auth/login'].user,
+        email: email,
+        roles: roles
+      }
+    });
   } else {
-    res.status(400).json({ error: 'Email and password required' });
+    res.status(401).json({ error: 'Invalid credentials' });
   }
 });
 
