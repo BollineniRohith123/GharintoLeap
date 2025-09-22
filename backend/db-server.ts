@@ -44,14 +44,10 @@ const authenticateToken = async (req: any, res: any, next: any) => {
   }
 
   try {
-    // For mock server, validate token format (in production, use proper JWT verification)
-    if (token === 'mock-jwt-token-for-development') {
-      req.user = { id: 1, email: 'admin@gharinto.com' };
-      next();
-    } else {
-      // Reject any token that's not the expected mock token
-      return res.status(403).json({ error: 'Invalid or expired token' });
-    }
+    // Use proper JWT verification for real tokens
+    const user = jwt.verify(token, JWT_SECRET) as any;
+    req.user = user;
+    next();
   } catch (error) {
     return res.status(403).json({ error: 'Invalid or expired token' });
   }
