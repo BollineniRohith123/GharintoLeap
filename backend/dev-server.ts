@@ -192,6 +192,15 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Database health check (mock)
+app.get('/health/db', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    database: 'mock',
+    timestamp: new Date().toISOString() 
+  });
+});
+
 // Catch all
 app.use((req, res) => {
   console.log('Unhandled request:', req.method, req.originalUrl);
