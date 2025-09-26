@@ -664,28 +664,316 @@ export const addComplaintResponse = api(
   }
 );
 
+// SLA Management and Escalation
+export const checkSLACompliance = api<void, { overdueCases: any[]; escalationRequired: any[] }>(
+  { auth: true, expose: true, method: "GET", path: "/complaints/sla-check" },
+  async () => {
+    const auth = getAuthData()!;
+
+    // Check permissions
+    if (!auth.permissions.includes('complaints.manage')) {
+      throw APIError.permissionDenied("Insufficient permissions");
+    }
+
+    // Define SLA timeframes (in hours)
+    const slaTimeframes = {
+      'urgent': 4,
+      'high': 24,
+      'medium': 72,
+      'low': 168
+    };
+
+    const overdueCases = await db.queryAll`
+      SELECT
+        c.*,
+        u.first_name as customer_first_name, u.last_name as customer_last_name,
+        assigned.first_name as assigned_first_name, assigned.last_name as assigned_last_name,
+        EXTRACT(EPOCH FROM (NOW() - c.created_at))/3600 as hours_open
+      FROM complaints c
+      JOIN users u ON c.user_id = u.id
+      LEFT JOIN users assigned ON c.assigned_to = assigned.id
+      WHERE c.status IN ('open', 'in_progress', 'waiting_response')
+      AND (
+        (c.priority = 'urgent' AND c.created_at < NOW() - INTERVAL '4 hours') OR
+        (c.priority = 'high' AND c.created_at < NOW() - INTERVAL '24 hours') OR
+        (c.priority = 'medium' AND c.created_at < NOW() - INTERVAL '72 hours') OR
+        (c.priority = 'low' AND c.created_at < NOW() - INTERVAL '168 hours')
+      )
+      ORDER BY c.priority, c.created_at
+    `;
+
+    // Find cases requiring escalation (overdue by 50% of SLA)
+    const escalationRequired = await db.queryAll`
+      SELECT
+        c.*,
+        u.first_name as customer_first_name, u.last_name as customer_last_name,
+        assigned.first_name as assigned_first_name, assigned.last_name as assigned_last_name,
+        EXTRACT(EPOCH FROM (NOW() - c.created_at))/3600 as hours_open
+      FROM complaints c
+      JOIN users u ON c.user_id = u.id
+      LEFT JOIN users assigned ON c.assigned_to = assigned.id
+      WHERE c.status IN ('open', 'in_progress', 'waiting_response')
+      AND (
+        (c.priority = 'urgent' AND c.created_at < NOW() - INTERVAL '6 hours') OR
+        (c.priority = 'high' AND c.created_at < NOW() - INTERVAL '36 hours') OR
+        (c.priority = 'medium' AND c.created_at < NOW() - INTERVAL '108 hours') OR
+        (c.priority = 'low' AND c.created_at < NOW() - INTERVAL '252 hours')
+      )
+      ORDER BY c.priority, c.created_at
+    `;
+
+    return {
+      overdueCases: overdueCases.map(c => ({
+        id: c.id,
+        title: c.title,
+        priority: c.priority,
+        status: c.status,
+        customer: `${c.customer_first_name} ${c.customer_last_name}`,
+        assignedTo: c.assigned_first_name ? `${c.assigned_first_name} ${c.assigned_last_name}` : 'Unassigned',
+        hoursOpen: Math.round(c.hours_open),
+        slaTarget: slaTimeframes[c.priority as keyof typeof slaTimeframes],
+        createdAt: c.created_at
+      })),
+      escalationRequired: escalationRequired.map(c => ({
+        id: c.id,
+        title: c.title,
+        priority: c.priority,
+        status: c.status,
+        customer: `${c.customer_first_name} ${c.customer_last_name}`,
+        assignedTo: c.assigned_first_name ? `${c.assigned_first_name} ${c.assigned_last_name}` : 'Unassigned',
+        hoursOpen: Math.round(c.hours_open),
+        slaTarget: slaTimeframes[c.priority as keyof typeof slaTimeframes],
+        createdAt: c.created_at
+      }))
+    };
+  }
+);
+
+// Escalate complaint to higher level
+export const escalateComplaint = api<{ complaintId: number; escalationReason: string; escalateTo?: number }, { success: boolean }>(
+  { auth: true, expose: true, method: "POST", path: "/complaints/:complaintId/escalate" },
+  async (req) => {
+    const auth = getAuthData()!;
+
+    // Check permissions
+    if (!auth.permissions.includes('complaints.manage')) {
+      throw APIError.permissionDenied("Insufficient permissions");
+    }
+
+    try {
+      await db.tx(async (tx) => {
+        // Get complaint details
+        const complaint = await tx.queryRow`
+          SELECT * FROM complaints WHERE id = ${req.complaintId}
+        `;
+
+        if (!complaint) {
+          throw APIError.notFound("Complaint not found");
+        }
+
+        // Find escalation target (supervisor or admin)
+        let escalationTarget = req.escalateTo;
+        if (!escalationTarget) {
+          const supervisor = await tx.queryRow`
+            SELECT u.id FROM users u
+            JOIN user_roles ur ON u.id = ur.user_id
+            JOIN roles r ON ur.role_id = r.id
+            WHERE r.name IN ('super_admin', 'admin') AND u.is_active = true
+            ORDER BY u.created_at ASC
+            LIMIT 1
+          `;
+          escalationTarget = supervisor?.id;
+        }
+
+        if (!escalationTarget) {
+          throw APIError.internal("No escalation target available");
+        }
+
+        // Update complaint priority and assignment
+        await tx.exec`
+          UPDATE complaints
+          SET assigned_to = ${escalationTarget},
+              priority = CASE
+                WHEN priority = 'low' THEN 'medium'
+                WHEN priority = 'medium' THEN 'high'
+                WHEN priority = 'high' THEN 'urgent'
+                ELSE priority
+              END,
+              updated_at = NOW()
+          WHERE id = ${req.complaintId}
+        `;
+
+        // Add timeline entry
+        await tx.exec`
+          INSERT INTO complaint_timeline (
+            complaint_id, action, performed_by, details
+          ) VALUES (
+            ${req.complaintId}, 'escalated', ${auth.userID},
+            'Escalated to higher level. Reason: ${req.escalationReason}'
+          )
+        `;
+
+        // Notify escalation target
+        await tx.exec`
+          INSERT INTO notifications (
+            user_id, title, content, type, reference_type, reference_id
+          ) VALUES (
+            ${escalationTarget},
+            'Complaint Escalated to You',
+            'Complaint "${complaint.title}" has been escalated to you. Reason: ${req.escalationReason}',
+            'complaint_escalation',
+            'complaint',
+            ${req.complaintId}
+          )
+        `;
+
+        // Notify customer about escalation
+        await tx.exec`
+          INSERT INTO notifications (
+            user_id, title, content, type, reference_type, reference_id
+          ) VALUES (
+            ${complaint.user_id},
+            'Your Complaint Has Been Escalated',
+            'Your complaint "${complaint.title}" has been escalated to our senior team for faster resolution.',
+            'complaint_escalation',
+            'complaint',
+            ${req.complaintId}
+          )
+        `;
+      });
+
+      return { success: true };
+
+    } catch (error) {
+      console.error('Complaint escalation error:', error);
+      throw error instanceof APIError ? error : APIError.internal("Failed to escalate complaint");
+    }
+  }
+);
+
+// Customer Satisfaction Survey
+export const submitSatisfactionSurvey = api<{
+  complaintId: number;
+  rating: number; // 1-5 scale
+  feedback: string;
+  wouldRecommend: boolean;
+  resolutionTime: 'very_fast' | 'fast' | 'acceptable' | 'slow' | 'very_slow';
+  agentRating: number; // 1-5 scale
+}, { success: boolean }>(
+  { auth: true, expose: true, method: "POST", path: "/complaints/:complaintId/satisfaction" },
+  async (req) => {
+    const auth = getAuthData()!;
+
+    // Validate rating
+    if (req.rating < 1 || req.rating > 5 || req.agentRating < 1 || req.agentRating > 5) {
+      throw APIError.invalidArgument("Ratings must be between 1 and 5");
+    }
+
+    // Check if complaint belongs to user
+    const complaint = await db.queryRow`
+      SELECT user_id, status FROM complaints WHERE id = ${req.complaintId}
+    `;
+
+    if (!complaint) {
+      throw APIError.notFound("Complaint not found");
+    }
+
+    if (complaint.user_id !== parseInt(auth.userID)) {
+      throw APIError.permissionDenied("Can only rate your own complaints");
+    }
+
+    if (complaint.status !== 'resolved' && complaint.status !== 'closed') {
+      throw APIError.badRequest("Can only rate resolved or closed complaints");
+    }
+
+    try {
+      await db.tx(async (tx) => {
+        // Check if survey already exists
+        const existingSurvey = await tx.queryRow`
+          SELECT id FROM satisfaction_surveys WHERE complaint_id = ${req.complaintId}
+        `;
+
+        if (existingSurvey) {
+          // Update existing survey
+          await tx.exec`
+            UPDATE satisfaction_surveys
+            SET rating = ${req.rating},
+                feedback = ${req.feedback},
+                would_recommend = ${req.wouldRecommend},
+                resolution_time = ${req.resolutionTime},
+                agent_rating = ${req.agentRating},
+                updated_at = NOW()
+            WHERE complaint_id = ${req.complaintId}
+          `;
+        } else {
+          // Create new survey
+          await tx.exec`
+            INSERT INTO satisfaction_surveys (
+              complaint_id, user_id, rating, feedback, would_recommend,
+              resolution_time, agent_rating
+            ) VALUES (
+              ${req.complaintId}, ${auth.userID}, ${req.rating}, ${req.feedback},
+              ${req.wouldRecommend}, ${req.resolutionTime}, ${req.agentRating}
+            )
+          `;
+        }
+
+        // Add timeline entry
+        await tx.exec`
+          INSERT INTO complaint_timeline (
+            complaint_id, action, performed_by, details
+          ) VALUES (
+            ${req.complaintId}, 'satisfaction_survey', ${auth.userID},
+            'Customer satisfaction survey submitted. Rating: ${req.rating}/5'
+          )
+        `;
+
+        // Update complaint with survey completion
+        await tx.exec`
+          UPDATE complaints
+          SET customer_satisfaction_rating = ${req.rating}, updated_at = NOW()
+          WHERE id = ${req.complaintId}
+        `;
+      });
+
+      return { success: true };
+
+    } catch (error) {
+      console.error('Satisfaction survey error:', error);
+      throw APIError.internal("Failed to submit satisfaction survey");
+    }
+  }
+);
+
 // Auto-assign complaint based on category and agent availability
 async function autoAssignComplaint(tx: any, complaintId: number, category: string) {
-  // Find available support agents based on workload
+  // Enhanced auto-assignment with category specialization
   const availableAgent = await tx.queryRow`
-    SELECT 
+    SELECT
       u.id,
-      COUNT(c.id) as active_complaints
+      COUNT(c.id) as active_complaints,
+      CASE
+        WHEN ep.skills @> ARRAY[${category}] THEN 1
+        ELSE 0
+      END as category_specialist
     FROM users u
     JOIN user_roles ur ON u.id = ur.user_id
     JOIN roles r ON ur.role_id = r.id
+    LEFT JOIN employee_profiles ep ON u.id = ep.user_id
     LEFT JOIN complaints c ON u.id = c.assigned_to AND c.status IN ('open', 'in_progress', 'waiting_response')
     WHERE r.name IN ('support_agent', 'super_admin')
       AND u.is_active = true
-    GROUP BY u.id
-    ORDER BY active_complaints ASC, u.created_at ASC
+    GROUP BY u.id, ep.skills
+    ORDER BY category_specialist DESC, active_complaints ASC, u.created_at ASC
     LIMIT 1
   `;
 
   if (availableAgent) {
     await tx.exec`
-      UPDATE complaints 
-      SET assigned_to = ${availableAgent.id}, updated_at = NOW()
+      UPDATE complaints
+      SET assigned_to = ${availableAgent.id},
+          assigned_at = NOW(),
+          updated_at = NOW()
       WHERE id = ${complaintId}
     `;
 
@@ -694,8 +982,266 @@ async function autoAssignComplaint(tx: any, complaintId: number, category: strin
         complaint_id, action, performed_by, details
       ) VALUES (
         ${complaintId}, 'auto_assigned', ${availableAgent.id},
-        'Auto-assigned based on availability and category: ${category}'
+        'Auto-assigned based on availability and category specialization: ${category}'
+      )
+    `;
+
+    // Notify assigned agent
+    await tx.exec`
+      INSERT INTO notifications (
+        user_id, title, content, type, reference_type, reference_id
+      ) VALUES (
+        ${availableAgent.id},
+        'New Complaint Assigned',
+        'A new ${category} complaint has been assigned to you.',
+        'complaint_assigned',
+        'complaint',
+        ${complaintId}
       )
     `;
   }
 }
+
+// Complaint Analytics and Reporting
+export const getComplaintAnalytics = api<{
+  dateFrom?: Query<string>;
+  dateTo?: Query<string>;
+  category?: Query<string>;
+  priority?: Query<string>;
+}, {
+  summary: {
+    totalComplaints: number;
+    resolvedComplaints: number;
+    averageResolutionTime: number;
+    customerSatisfactionAvg: number;
+    slaCompliance: number;
+  };
+  categoryBreakdown: Array<{ category: string; count: number; avgResolutionTime: number }>;
+  priorityBreakdown: Array<{ priority: string; count: number; avgResolutionTime: number }>;
+  agentPerformance: Array<{ agentName: string; assignedCount: number; resolvedCount: number; avgRating: number }>;
+  trends: Array<{ date: string; created: number; resolved: number }>;
+}>(
+  { auth: true, expose: true, method: "GET", path: "/complaints/analytics" },
+  async (params) => {
+    const auth = getAuthData()!;
+
+    // Check permissions
+    if (!auth.permissions.includes('complaints.view')) {
+      throw APIError.permissionDenied("Insufficient permissions");
+    }
+
+    const dateFrom = params.dateFrom || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const dateTo = params.dateTo || new Date().toISOString().split('T')[0];
+
+    let whereClause = "WHERE c.created_at >= $1 AND c.created_at <= $2";
+    const queryParams: any[] = [dateFrom, dateTo + ' 23:59:59'];
+    let paramIndex = 3;
+
+    if (params.category) {
+      whereClause += ` AND c.category = $${paramIndex++}`;
+      queryParams.push(params.category);
+    }
+
+    if (params.priority) {
+      whereClause += ` AND c.priority = $${paramIndex++}`;
+      queryParams.push(params.priority);
+    }
+
+    // Summary statistics
+    const summary = await db.rawQueryRow(`
+      SELECT
+        COUNT(*) as total_complaints,
+        COUNT(CASE WHEN status IN ('resolved', 'closed') THEN 1 END) as resolved_complaints,
+        AVG(CASE
+          WHEN actual_resolution_date IS NOT NULL
+          THEN EXTRACT(EPOCH FROM (actual_resolution_date - created_at))/3600
+        END) as avg_resolution_hours,
+        AVG(customer_satisfaction_rating) as avg_satisfaction,
+        COUNT(CASE
+          WHEN (
+            (priority = 'urgent' AND actual_resolution_date <= created_at + INTERVAL '4 hours') OR
+            (priority = 'high' AND actual_resolution_date <= created_at + INTERVAL '24 hours') OR
+            (priority = 'medium' AND actual_resolution_date <= created_at + INTERVAL '72 hours') OR
+            (priority = 'low' AND actual_resolution_date <= created_at + INTERVAL '168 hours')
+          ) THEN 1
+        END) * 100.0 / NULLIF(COUNT(CASE WHEN status IN ('resolved', 'closed') THEN 1 END), 0) as sla_compliance
+      FROM complaints c
+      ${whereClause}
+    `, ...queryParams);
+
+    // Category breakdown
+    const categoryBreakdown = await db.rawQueryAll(`
+      SELECT
+        category,
+        COUNT(*) as count,
+        AVG(CASE
+          WHEN actual_resolution_date IS NOT NULL
+          THEN EXTRACT(EPOCH FROM (actual_resolution_date - created_at))/3600
+        END) as avg_resolution_hours
+      FROM complaints c
+      ${whereClause}
+      GROUP BY category
+      ORDER BY count DESC
+    `, ...queryParams);
+
+    // Priority breakdown
+    const priorityBreakdown = await db.rawQueryAll(`
+      SELECT
+        priority,
+        COUNT(*) as count,
+        AVG(CASE
+          WHEN actual_resolution_date IS NOT NULL
+          THEN EXTRACT(EPOCH FROM (actual_resolution_date - created_at))/3600
+        END) as avg_resolution_hours
+      FROM complaints c
+      ${whereClause}
+      GROUP BY priority
+      ORDER BY
+        CASE priority
+          WHEN 'urgent' THEN 1
+          WHEN 'high' THEN 2
+          WHEN 'medium' THEN 3
+          ELSE 4
+        END
+    `, ...queryParams);
+
+    // Agent performance
+    const agentPerformance = await db.rawQueryAll(`
+      SELECT
+        u.first_name || ' ' || u.last_name as agent_name,
+        COUNT(*) as assigned_count,
+        COUNT(CASE WHEN c.status IN ('resolved', 'closed') THEN 1 END) as resolved_count,
+        AVG(ss.agent_rating) as avg_rating
+      FROM complaints c
+      JOIN users u ON c.assigned_to = u.id
+      LEFT JOIN satisfaction_surveys ss ON c.id = ss.complaint_id
+      ${whereClause} AND c.assigned_to IS NOT NULL
+      GROUP BY u.id, u.first_name, u.last_name
+      ORDER BY resolved_count DESC
+    `, ...queryParams);
+
+    // Daily trends
+    const trends = await db.rawQueryAll(`
+      SELECT
+        DATE(created_at) as date,
+        COUNT(*) as created,
+        COUNT(CASE WHEN status IN ('resolved', 'closed') THEN 1 END) as resolved
+      FROM complaints c
+      ${whereClause}
+      GROUP BY DATE(created_at)
+      ORDER BY date
+    `, ...queryParams);
+
+    return {
+      summary: {
+        totalComplaints: parseInt(summary?.total_complaints || '0'),
+        resolvedComplaints: parseInt(summary?.resolved_complaints || '0'),
+        averageResolutionTime: Math.round(summary?.avg_resolution_hours || 0),
+        customerSatisfactionAvg: Math.round((summary?.avg_satisfaction || 0) * 100) / 100,
+        slaCompliance: Math.round((summary?.sla_compliance || 0) * 100) / 100
+      },
+      categoryBreakdown: categoryBreakdown.map(cb => ({
+        category: cb.category,
+        count: parseInt(cb.count),
+        avgResolutionTime: Math.round(cb.avg_resolution_hours || 0)
+      })),
+      priorityBreakdown: priorityBreakdown.map(pb => ({
+        priority: pb.priority,
+        count: parseInt(pb.count),
+        avgResolutionTime: Math.round(pb.avg_resolution_hours || 0)
+      })),
+      agentPerformance: agentPerformance.map(ap => ({
+        agentName: ap.agent_name,
+        assignedCount: parseInt(ap.assigned_count),
+        resolvedCount: parseInt(ap.resolved_count),
+        avgRating: Math.round((ap.avg_rating || 0) * 100) / 100
+      })),
+      trends: trends.map(t => ({
+        date: t.date,
+        created: parseInt(t.created),
+        resolved: parseInt(t.resolved)
+      }))
+    };
+  }
+);
+
+// Bulk operations for complaints
+export const bulkUpdateComplaints = api<{
+  complaintIds: number[];
+  updates: {
+    status?: 'open' | 'in_progress' | 'waiting_response' | 'resolved' | 'closed';
+    priority?: 'low' | 'medium' | 'high' | 'urgent';
+    assignedTo?: number;
+  };
+}, { success: boolean; updatedCount: number }>(
+  { auth: true, expose: true, method: "PUT", path: "/complaints/bulk-update" },
+  async (req) => {
+    const auth = getAuthData()!;
+
+    // Check permissions
+    if (!auth.permissions.includes('complaints.manage')) {
+      throw APIError.permissionDenied("Insufficient permissions");
+    }
+
+    if (!req.complaintIds.length) {
+      throw APIError.invalidArgument("No complaints specified for update");
+    }
+
+    try {
+      const result = await db.tx(async (tx) => {
+        let updatedCount = 0;
+
+        for (const complaintId of req.complaintIds) {
+          const updateFields: string[] = [];
+          const updateValues: any[] = [];
+          let paramIndex = 1;
+
+          if (req.updates.status) {
+            updateFields.push(`status = $${paramIndex++}`);
+            updateValues.push(req.updates.status);
+          }
+
+          if (req.updates.priority) {
+            updateFields.push(`priority = $${paramIndex++}`);
+            updateValues.push(req.updates.priority);
+          }
+
+          if (req.updates.assignedTo !== undefined) {
+            updateFields.push(`assigned_to = $${paramIndex++}`);
+            updateValues.push(req.updates.assignedTo);
+          }
+
+          if (updateFields.length > 0) {
+            updateFields.push(`updated_at = NOW()`);
+
+            await tx.rawQuery(`
+              UPDATE complaints
+              SET ${updateFields.join(', ')}
+              WHERE id = $${paramIndex}
+            `, ...updateValues, complaintId);
+
+            // Add timeline entry
+            await tx.exec`
+              INSERT INTO complaint_timeline (
+                complaint_id, action, performed_by, details
+              ) VALUES (
+                ${complaintId}, 'bulk_updated', ${auth.userID},
+                'Bulk update applied: ${JSON.stringify(req.updates)}'
+              )
+            `;
+
+            updatedCount++;
+          }
+        }
+
+        return { updatedCount };
+      });
+
+      return { success: true, updatedCount: result.updatedCount };
+
+    } catch (error) {
+      console.error('Bulk update error:', error);
+      throw APIError.internal("Failed to perform bulk update");
+    }
+  }
+);

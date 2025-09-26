@@ -8,10 +8,25 @@
     "dev:backend": "cd backend && encore run",
     "dev:frontend": "cd frontend && bun run dev",
     "build": "cd backend && bun run build",
-    "install:all": "bun install && cd frontend && bun install && cd ../backend && bun install"
+    "install:all": "bun install && cd frontend && bun install && cd ../backend && bun install",
+    "test": "node test-runner.js",
+    "test:functional": "node tests/comprehensive-test-suite.js",
+    "test:performance": "node tests/performance-test-suite.js",
+    "test:quick": "API_BASE=http://localhost:4000 node tests/comprehensive-test-suite.js",
+    "test:load": "CONCURRENT_USERS=10 TEST_DURATION=60 node tests/performance-test-suite.js",
+    "test:stress": "CONCURRENT_USERS=50 TEST_DURATION=120 node tests/performance-test-suite.js",
+    "start": "node backend/production-server.ts",
+    "start:dev": "cd backend && encore run",
+    "start:prod": "NODE_ENV=production node backend/production-server.ts",
+    "db:migrate": "for file in backend/db/migrations/*.up.sql; do psql $DATABASE_URL -f \"$file\"; done",
+    "db:setup": "createdb gharinto_dev && npm run db:migrate",
+    "db:reset": "dropdb --if-exists gharinto_dev && npm run db:setup"
   },
   "workspaces": [
     "backend",
     "frontend"
-  ]
+  ],
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  }
 }
