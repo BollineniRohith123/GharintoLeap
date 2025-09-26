@@ -14,7 +14,8 @@ interface RegisterRequest {
   lastName: string;
   phone?: string;
   city?: string;
-  userType: 'customer' | 'interior_designer' | 'vendor';
+  state?: string;
+  userType: 'customer' | 'interior_designer' | 'vendor' | 'project_manager';
 }
 
 interface RegisterResponse {
@@ -44,7 +45,7 @@ export const register = api<RegisterRequest, RegisterResponse>(
 
     // Check if user already exists
     const existingUser = await db.queryRow`
-      SELECT id FROM users WHERE email = ${req.email}
+      SELECT id FROM users WHERE email = ${req.email.toLowerCase()}
     `;
 
     if (existingUser) {
@@ -52,12 +53,12 @@ export const register = api<RegisterRequest, RegisterResponse>(
     }
 
     // Hash password
-    const passwordHash = await bcrypt.hash(req.password, 10);
+    const passwordHash = await bcrypt.hash(req.password, 12);
 
     // Create user
     const user = await db.queryRow`
-      INSERT INTO users (email, password_hash, first_name, last_name, phone, city)
-      VALUES (${req.email}, ${passwordHash}, ${req.firstName}, ${req.lastName}, ${req.phone}, ${req.city})
+      INSERT INTO users (email, password_hash, first_name, last_name, phone, city, country)
+      VALUES (${req.email.toLowerCase()}, ${passwordHash}, ${req.firstName}, ${req.lastName}, ${req.phone}, ${req.city}, 'India')
       RETURNING id, email, first_name, last_name
     `;
 
@@ -82,9 +83,14 @@ export const register = api<RegisterRequest, RegisterResponse>(
       INSERT INTO wallets (user_id) VALUES (${user.id})
     `;
 
+    // Create user preferences
+    await db.exec`
+      INSERT INTO user_preferences (user_id) VALUES (${user.id})
+    `;
+
     // Generate JWT token
     const token = jwt.sign(
-      { userId: user.id, email: user.email },
+      { userID: user.id.toString(), email: user.email },
       jwtSecret(),
       { expiresIn: "7d" }
     );

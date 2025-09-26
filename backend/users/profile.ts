@@ -1,4 +1,4 @@
-import { api } from "encore.dev/api";
+import { api, APIError } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import db from "../db";
 
@@ -9,7 +9,11 @@ interface UserProfile {
   lastName: string;
   phone?: string;
   city?: string;
+  state?: string;
   avatarUrl?: string;
+  country: string;
+  isActive: boolean;
+  emailVerified: boolean;
   roles: string[];
   menus: Array<{
     name: string;
@@ -22,6 +26,26 @@ interface UserProfile {
       path?: string;
     }>;
   }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface UpdateProfileRequest {
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  city?: string;
+  state?: string;
+  avatarUrl?: string;
+}
+
+interface UserPreferences {
+  emailNotifications: boolean;
+  pushNotifications: boolean;
+  smsNotifications: boolean;
+  theme: string;
+  language: string;
+  timezone: string;
 }
 
 export const getProfile = api(
