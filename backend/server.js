@@ -953,13 +953,31 @@ app.post('/employees/attendance', authenticateToken, async (req, res) => {
     try {
         const { userId, date, checkInTime, checkOutTime, status } = req.body;
         const empId = userId || req.user.id;
+        
+        // Convert time formats if needed
+        const formatTime = (time) => {
+            if (!time) return null;
+            if (typeof time === 'string' && time.includes('T')) {
+                // Full timestamp format
+                return time;
+            }
+            if (typeof time === 'string' && time.match(/^\d{2}:\d{2}$/)) {
+                // Convert HH:MM to HH:MM:SS
+                return `${date}T${time}:00`;
+            }
+            return time;
+        };
+        
+        const formattedCheckIn = formatTime(checkInTime);
+        const formattedCheckOut = formatTime(checkOutTime);
+        
         const attendance = await pool.query(`
       INSERT INTO employee_attendance (user_id, date, check_in_time, check_out_time, status)
       VALUES ($1, $2, $3, $4, $5)
       ON CONFLICT (user_id, date) DO UPDATE SET
       check_in_time = $3, check_out_time = $4, status = $5, updated_at = NOW()
       RETURNING *
-    `, [empId, date, checkInTime, checkOutTime, status]);
+    `, [empId, date, formattedCheckIn, formattedCheckOut, status]);
         res.json(attendance.rows[0]);
     }
     catch (error) {
