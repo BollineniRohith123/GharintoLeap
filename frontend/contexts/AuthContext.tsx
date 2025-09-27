@@ -80,7 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
-    localStorage.removeItem('auth_token');
+    apiClient.logout();
     setToken(null);
     setUser(null);
   };
