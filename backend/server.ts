@@ -17,7 +17,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key-change-in-productio
 const pool = new Pool({
   host: 'localhost',
   port: 5432,
-  database: 'gharinto_db',
+  database: 'gharinto_dev',
   user: 'postgres',
   password: 'postgres',
   ssl: false,
