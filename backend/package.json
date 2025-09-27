@@ -1,12 +1,12 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "type": "module",
+  "type": "commonjs",
   "packageManager": "bun",
   "scripts": {
-    "dev": "bun run dev-server.ts",
+    "dev": "node server.js",
     "dev:db": "bun run db-server.ts",
-    "start": "bun run dev-server.ts",
+    "start": "node server.js",
     "build": "cd ../frontend && bun install && vite build --outDir=../backend/frontend/dist"
   },
   "dependencies": {
@@ -16,6 +16,7 @@
     "@types/multer": "^2.0.0",
     "@types/pg": "^8.15.5",
     "bcryptjs": "^3.0.2",
+    "better-sqlite3": "^12.4.1",
     "cors": "^2.8.5",
     "encore.dev": "^1.50.0",
     "express": "^5.1.0",

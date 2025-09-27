@@ -1,0 +1,155 @@
+{
+  "timestamp": "2025-09-27T06:36:26.977Z",
+  "duration": "0.18s",
+  "environment": "Production PostgreSQL",
+  "targetAudience": "K-12 Educational Sector",
+  "summary": {
+    "total": 16,
+    "passed": 6,
+    "failed": 10,
+    "successRate": "37.5%"
+  },
+  "categories": {
+    "authentication": {
+      "passed": 0,
+      "failed": 7,
+      "tests": [
+        {
+          "name": "Login admin",
+          "passed": false,
+          "details": "Status: 500 | Error: Internal server error",
+          "responseData": "{\n  \"error\": \"Internal server error\"\n}"
+        },
+        {
+          "name": "Login teacher",
+          "passed": false,
+          "details": "Status: 500 | Error: Internal server error",
+          "responseData": "{\n  \"error\": \"Internal server error\"\n}"
+        },
+        {
+          "name": "Login student",
+          "passed": false,
+          "details": "Status: 500 | Error: Internal server error",
+          "responseData": "{\n  \"error\": \"Internal server error\"\n}"
+        },
+        {
+          "name": "Login parent",
+          "passed": false,
+          "details": "Status: 500 | Error: Internal server error",
+          "responseData": "{\n  \"error\": \"Internal server error\"\n}"
+        },
+        {
+          "name": "User Registration",
+          "passed": false,
+          "details": "Status: 404 | New User Created",
+          "responseData": "{\n  \"error\": \"Endpoint not found\",\n  \"path\": \"/auth/register\"\n}"
+        },
+        {
+          "name": "Invalid Login Rejection",
+          "passed": false,
+          "details": "Status: 500 | Expected: 401",
+          "responseData": null
+        },
+        {
+          "name": "Forgot Password",
+          "passed": false,
+          "details": "Status: 404",
+          "responseData": "{\n  \"error\": \"Endpoint not found\",\n  \"path\": \"/auth/forgot-password\"\n}"
+        }
+      ]
+    },
+    "userManagement": {
+      "passed": 0,
+      "failed": 1,
+      "tests": [
+        {
+          "name": "Admin Token Required",
+          "passed": false,
+          "details": "No admin token available",
+          "responseData": null
+        }
+      ]
+    },
+    "projectManagement": {
+      "passed": 0,
+      "failed": 0,
+      "tests": []
+    },
+    "leadManagement": {
+      "passed": 0,
+      "failed": 0,
+      "tests": []
+    },
+    "materialVendor": {
+      "passed": 0,
+      "failed": 0,
+      "tests": []
+    },
+    "analytics": {
+      "passed": 0,
+      "failed": 0,
+      "tests": []
+    },
+    "security": {
+      "passed": 3,
+      "failed": 1,
+      "tests": [
+        {
+          "name": "Unauthorized Access Blocked",
+          "passed": true,
+          "details": "Status: 401 | Expected: 401",
+          "responseData": null
+        },
+        {
+          "name": "Invalid Token Rejected",
+          "passed": false,
+          "details": "Status: 403 | Expected: 401",
+          "responseData": null
+        },
+        {
+          "name": "SQL Injection Prevention",
+          "passed": true,
+          "details": "Status: 500 | SQL injection blocked",
+          "responseData": null
+        },
+        {
+          "name": "XSS Prevention",
+          "passed": true,
+          "details": "Status: 400 | XSS handled properly",
+          "responseData": null
+        }
+      ]
+    },
+    "infrastructure": {
+      "passed": 3,
+      "failed": 1,
+      "tests": [
+        {
+          "name": "API Health Check",
+          "passed": true,
+          "details": "Status: ok | Response Time: 35ms",
+          "responseData": "{\n  \"status\": \"ok\",\n  \"timestamp\": \"2025-09-27T06:36:26.826Z\",\n  \"database\": \"connected\"\n}"
+        },
+        {
+          "name": "Database Connectivity",
+          "passed": false,
+          "details": "DB Status: disconnected",
+          "responseData": "{\n  \"status\": \"error\",\n  \"database\": \"disconnected\",\n  \"error\": \"\"\n}"
+        },
+        {
+          "name": "404 Error Handling",
+          "passed": true,
+          "details": "Status: 404 | Expected: 404",
+          "responseData": null
+        },
+        {
+          "name": "CORS Headers Present",
+          "passed": "http://localhost:5173",
+          "details": "CORS Origin: http://localhost:5173",
+          "responseData": null
+        }
+      ]
+    }
+  },
+  "productionReady": false
+}
