@@ -207,10 +207,14 @@ class FocusedAPITester:
         
         # 6. Test Mark Employee Attendance (POST /employees/attendance)
         print("\n6️⃣ Testing Mark Employee Attendance Endpoint")
+        today = datetime.now()
+        check_in_timestamp = today.replace(hour=9, minute=0, second=0, microsecond=0)
+        check_out_timestamp = today.replace(hour=18, minute=0, second=0, microsecond=0)
+        
         attendance_data = {
-            "date": datetime.now().strftime("%Y-%m-%d"),
-            "checkInTime": "09:00:00",  # Using proper timestamp format
-            "checkOutTime": "18:00:00",
+            "date": today.strftime("%Y-%m-%d"),
+            "checkInTime": check_in_timestamp.isoformat(),  # Using proper ISO timestamp format
+            "checkOutTime": check_out_timestamp.isoformat(),
             "status": "present"
         }
         
