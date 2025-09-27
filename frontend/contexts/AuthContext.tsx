@@ -64,7 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [profile, error, token]);
 
   const login = async (email: string, password: string) => {
-    const response = await backend.auth.login({ email, password });
+    const response = await apiClient.login({ email, password });
     const newToken = response.token;
     
     localStorage.setItem('auth_token', newToken);
@@ -72,7 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const register = async (userData: any) => {
-    const response = await backend.auth.register(userData);
+    const response = await apiClient.register(userData);
     const newToken = response.token;
     
     localStorage.setItem('auth_token', newToken);
