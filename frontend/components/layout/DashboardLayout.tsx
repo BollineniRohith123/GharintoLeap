@@ -2,6 +2,8 @@ import { ReactNode, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { DynamicMenu } from '../navigation/DynamicMenu';
+import NotificationCenter from './NotificationCenter';
+import GlobalSearch from './GlobalSearch';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -14,7 +16,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {
   Menu,
-  Bell,
   LogOut,
   Settings,
   User,
@@ -108,9 +109,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </div>
 
           <div className="flex items-center space-x-4">
-            <Button variant="ghost" size="icon">
-              <Bell className="h-5 w-5" />
-            </Button>
+            <GlobalSearch />
+            <NotificationCenter />
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

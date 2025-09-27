@@ -43,6 +43,9 @@ const RoleDashboard: React.FC<DashboardProps> = ({ userRole }) => {
         case 'super_admin':
           data = await backend.analytics.getSuperAdminDashboard();
           break;
+        case 'admin':
+          data = await backend.analytics.getSuperAdminDashboard();
+          break;
         case 'interior_designer':
           data = await backend.analytics.getDesignerDashboard();
           break;
@@ -96,6 +99,7 @@ const RoleDashboard: React.FC<DashboardProps> = ({ userRole }) => {
       </div>
 
       {userRole === 'super_admin' && <SuperAdminDashboard data={dashboardData} />}
+      {userRole === 'admin' && <AdminDashboard data={dashboardData} />}
       {userRole === 'interior_designer' && <DesignerDashboard data={dashboardData} />}
       {userRole === 'customer' && <CustomerDashboard data={dashboardData} />}
       {userRole === 'vendor' && <VendorDashboard data={dashboardData} />}
@@ -103,6 +107,97 @@ const RoleDashboard: React.FC<DashboardProps> = ({ userRole }) => {
     </div>
   );
 };
+
+// Admin Dashboard is similar to SuperAdmin but with restricted permissions
+const AdminDashboard: React.FC<{ data: any }> = ({ data }) => (
+  <div className="space-y-6">
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <MetricCard
+        title="Active Users"
+        value={data?.users?.active || 0}
+        description={`${data?.users?.new_this_month || 0} new this month`}
+        icon={<Users className="h-4 w-4" />}
+        trend={8}
+      />
+      <MetricCard
+        title="Active Projects"
+        value={data?.projects?.active || 0}
+        description={`₹${(data?.projects?.total_value || 0).toLocaleString()}`}
+        icon={<Building2 className="h-4 w-4" />}
+        trend={12}
+      />
+      <MetricCard
+        title="Pending Tasks"
+        value={data?.tasks?.pending || 0}
+        description={`${data?.tasks?.overdue || 0} overdue`}
+        icon={<Clock className="h-4 w-4" />}
+        variant={data?.tasks?.overdue > 0 ? 'destructive' : 'default'}
+      />
+      <MetricCard
+        title="Monthly Revenue"
+        value={`₹${(data?.revenue?.this_month || 0).toLocaleString()}`}
+        description={`${data?.revenue?.growth_rate || 0}% growth`}
+        icon={<DollarSign className="h-4 w-4" />}
+        trend={data?.revenue?.growth_rate || 0}
+      />
+    </div>
+
+    <div className="grid gap-4 lg:grid-cols-2">
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent Activity</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="h-4 w-4 text-green-500" />
+                <span className="text-sm">New user registered</span>
+              </div>
+              <span className="text-xs text-muted-foreground">2 min ago</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Building2 className="h-4 w-4 text-blue-500" />
+                <span className="text-sm">Project milestone completed</span>
+              </div>
+              <span className="text-xs text-muted-foreground">15 min ago</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Target className="h-4 w-4 text-orange-500" />
+                <span className="text-sm">New lead assigned</span>
+              </div>
+              <span className="text-xs text-muted-foreground">1 hour ago</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>System Status</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm">Database Status</span>
+              <Badge className="bg-green-500/20 text-green-300">Healthy</Badge>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm">API Response Time</span>
+              <span className="text-sm font-medium">{data?.system_health?.response_time || 45}ms</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm">Active Users (24h)</span>
+              <span className="text-sm font-medium">{data?.system_health?.active_users_24h || 0}</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  </div>
+);
 
 const SuperAdminDashboard: React.FC<{ data: any }> = ({ data }) => (
   <div className="space-y-6">

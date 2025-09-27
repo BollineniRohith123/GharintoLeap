@@ -368,15 +368,18 @@ class ApiClient {
 
   constructor(baseURL: string = 'http://localhost:4000') {
     this.baseURL = baseURL;
-    this.token = localStorage.getItem('auth_token');
+    // Check if running in browser before accessing localStorage
+    this.token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
   }
 
   setToken(token: string | null) {
     this.token = token;
-    if (token) {
-      localStorage.setItem('auth_token', token);
-    } else {
-      localStorage.removeItem('auth_token');
+    if (typeof window !== 'undefined') {
+      if (token) {
+        localStorage.setItem('auth_token', token);
+      } else {
+        localStorage.removeItem('auth_token');
+      }
     }
   }
 
@@ -419,7 +422,17 @@ class ApiClient {
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+        const errorMessage = errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`;
+        
+        // Handle authentication errors
+        if (response.status === 401) {
+          this.setToken(null);
+          if (typeof window !== 'undefined') {
+            window.location.href = '/login';
+          }
+        }
+        
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();
@@ -744,8 +757,18 @@ class ApiClient {
   }
 }
 
-// Create and export singleton instance
-const apiClient = new ApiClient();
+// Create and export singleton instance with production URL support
+const getBaseURL = () => {
+  if (typeof window !== 'undefined') {
+    // Production check - use environment variable or current origin
+    return process.env.NODE_ENV === 'production' 
+      ? process.env.VITE_API_URL || 'http://localhost:4000'
+      : 'http://localhost:4000';
+  }
+  return 'http://localhost:4000';
+};
+
+const apiClient = new ApiClient(getBaseURL());
 export default apiClient;
 
 // Export the class as well for advanced usage

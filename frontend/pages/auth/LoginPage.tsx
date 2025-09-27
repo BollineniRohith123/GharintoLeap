@@ -107,20 +107,31 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              <Button
-                type="submit"
-                className="w-full bg-green-500 hover:bg-green-600 text-white"
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Signing in...
-                  </>
-                ) : (
-                  'Sign in'
-                )}
-              </Button>
+              <div className="flex items-center justify-between">
+                <Button
+                  type="submit"
+                  className="w-full bg-green-500 hover:bg-green-600 text-white"
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Signing in...
+                    </>
+                  ) : (
+                    'Sign in'
+                  )}
+                </Button>
+              </div>
+
+              <div className="text-center">
+                <Link
+                  to="/forgot-password"
+                  className="text-sm text-green-400 hover:text-green-300"
+                >
+                  Forgot your password?
+                </Link>
+              </div>
             </form>
 
             <div className="mt-6 text-center text-sm">
