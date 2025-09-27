@@ -28,5 +28,13 @@
     "better-sqlite3": "^12.4.1",
     "node-fetch": "^2.6.7",
     "pg": "^8.16.3"
-  }
+  },
+  "description": "Gharinto Leap is a comprehensive, production-ready B2B platform designed to streamline the interior design industry in India. It connects customers, designers, project managers, and vendors within a unified and efficient ecosystem.",
+  "main": "COMPLETE_API_TEST_SUITE.js",
+  "directories": {
+    "test": "tests"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
 }
