@@ -55,16 +55,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
-    if (profile && permissions) {
-      setUser({
-        ...profile,
-        permissions: permissions.permissions || []
-      });
+    if (profile) {
+      setUser(profile);
     } else if (error && token) {
       // Token is invalid, clear it
       logout();
     }
-  }, [profile, permissions, error, token]);
+  }, [profile, error, token]);
 
   const login = async (email: string, password: string) => {
     const response = await backend.auth.login({ email, password });
