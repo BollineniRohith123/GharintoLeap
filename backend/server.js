@@ -762,21 +762,47 @@ app.get('/projects/:id', authenticateToken, requirePermission('projects.view'), 
 app.put('/projects/:id', authenticateToken, requirePermission('projects.edit'), async (req, res) => {
     try {
         const { id } = req.params;
-        const { title, description, designerId, status, priority, budget, estimatedCost, actualCost, progressPercentage, startDate, endDate, estimatedEndDate, city, address, areaSqft, propertyType } = req.body;
+        const updateFields = req.body;
+        
+        // Build dynamic update query for provided fields only
+        const allowedFields = ['title', 'description', 'designer_id', 'status', 'priority', 'budget', 'estimated_cost', 'actual_cost', 'progress_percentage', 'start_date', 'end_date', 'estimated_end_date', 'city', 'address', 'area_sqft', 'property_type'];
+        const dbFieldMap = {
+            'designerId': 'designer_id',
+            'estimatedCost': 'estimated_cost', 
+            'actualCost': 'actual_cost',
+            'progressPercentage': 'progress_percentage',
+            'startDate': 'start_date',
+            'endDate': 'end_date', 
+            'estimatedEndDate': 'estimated_end_date',
+            'areaSqft': 'area_sqft',
+            'propertyType': 'property_type'
+        };
+        
+        const setClause = [];
+        const values = [];
+        let paramIndex = 1;
+        
+        for (const [key, value] of Object.entries(updateFields)) {
+            const dbField = dbFieldMap[key] || key;
+            if (allowedFields.includes(dbField) && value !== undefined) {
+                setClause.push(`${dbField} = $${paramIndex}`);
+                values.push(value);
+                paramIndex++;
+            }
+        }
+        
+        if (setClause.length === 0) {
+            return res.status(400).json({ error: 'No valid fields to update' });
+        }
+        
+        setClause.push(`updated_at = NOW()`);
+        values.push(id);
+        
         const updateResult = await pool.query(`
-      UPDATE projects SET
-        title = $1, description = $2, designer_id = $3, status = $4, priority = $5,
-        budget = $6, estimated_cost = $7, actual_cost = $8, progress_percentage = $9,
-        start_date = $10, end_date = $11, estimated_end_date = $12,
-        city = $13, address = $14, area_sqft = $15, property_type = $16,
-        updated_at = NOW()
-      WHERE id = $17
-      RETURNING *
-    `, [
-            title, description, designerId, status, priority, budget, estimatedCost,
-            actualCost, progressPercentage, startDate, endDate, estimatedEndDate,
-            city, address, areaSqft, propertyType, id
-        ]);
+            UPDATE projects SET ${setClause.join(', ')}
+            WHERE id = $${paramIndex}
+            RETURNING *
+        `, values);
         if (updateResult.rows.length === 0) {
             return res.status(404).json({ error: 'Project not found' });
         }
