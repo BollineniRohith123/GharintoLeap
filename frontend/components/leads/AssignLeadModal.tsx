@@ -215,7 +215,7 @@ export default function AssignLeadModal({ lead, isOpen, onClose, onSuccess }: As
                   </div>
                 );
               })()
-            )}
+            }
             </div>
           )}
 

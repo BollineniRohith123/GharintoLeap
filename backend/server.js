@@ -866,8 +866,39 @@ app.get('/wallet', authenticateToken, async (req, res) => {
 app.get('/wallet/transactions', authenticateToken, async (req, res) => {
     try {
         const transactions = await pool.query(`
-      SELECT t.*, w.user_id FROM transactions t 
-      JOIN wallets w ON t.wallet_id = w.id 
+      SELECT t.*, w.user_id FROM transactions t
+      JOIN wallets w ON t.wallet_id = w.id
+      WHERE w.user_id = $1 ORDER BY t.created_at DESC LIMIT 50
+    `, [req.user.id]);
+        res.json({ transactions: transactions.rows });
+    }
+    catch (error) {
+        console.error('Transactions error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Add alias routes for payments namespace
+app.get('/payments/wallet', authenticateToken, async (req, res) => {
+    try {
+        let wallet = await pool.query('SELECT * FROM wallets WHERE user_id = $1', [req.user.id]);
+        if (wallet.rows.length === 0) {
+            const newWallet = await pool.query('INSERT INTO wallets (user_id, balance) VALUES ($1, 0) RETURNING *', [req.user.id]);
+            wallet = newWallet;
+        }
+        res.json(wallet.rows[0]);
+    }
+    catch (error) {
+        console.error('Wallet error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.get('/payments/wallet/transactions', authenticateToken, async (req, res) => {
+    try {
+        const transactions = await pool.query(`
+      SELECT t.*, w.user_id FROM transactions t
+      JOIN wallets w ON t.wallet_id = w.id
       WHERE w.user_id = $1 ORDER BY t.created_at DESC LIMIT 50
     `, [req.user.id]);
         res.json({ transactions: transactions.rows });
