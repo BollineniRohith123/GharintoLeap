@@ -958,7 +958,7 @@ app.get('/wallet', authenticateToken, async (req: any, res) => {
     let wallet = await pool.query('SELECT * FROM wallets WHERE user_id = $1', [req.user.id]);
     if (wallet.rows.length === 0) {
       const newWallet = await pool.query(
-        'INSERT INTO wallets (user_id, balance, credit_limit) VALUES ($1, 0, 100000) RETURNING *', 
+        'INSERT INTO wallets (user_id, balance) VALUES ($1, 0) RETURNING *', 
         [req.user.id]
       );
       wallet = newWallet;
