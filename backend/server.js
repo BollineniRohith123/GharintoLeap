@@ -910,7 +910,7 @@ app.get('/invoices', authenticateToken, async (req, res) => {
 app.get('/employees', authenticateToken, requirePermission('employees.view'), async (req, res) => {
     try {
         const employees = await pool.query(`
-      SELECT u.*, ep.employee_id, ep.department, ep.designation, ep.joining_date, ep.salary
+      SELECT u.*, ep.employee_id, ep.department, ep.designation, ep.joining_date, ep.basic_salary, ep.gross_salary, ep.ctc
       FROM users u 
       JOIN employee_profiles ep ON u.id = ep.user_id
       WHERE ep.is_active = true
