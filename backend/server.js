@@ -1266,19 +1266,44 @@ app.get('/leads/:id', authenticateToken, requirePermission('leads.view'), async 
 app.put('/leads/:id', authenticateToken, requirePermission('leads.edit'), async (req, res) => {
     try {
         const { id } = req.params;
-        const { firstName, lastName, email, phone, city, budgetMin, budgetMax, projectType, propertyType, timeline, description, status, score } = req.body;
+        const updateFields = req.body;
+        
+        // Build dynamic update query for provided fields only
+        const allowedFields = ['first_name', 'last_name', 'email', 'phone', 'city', 'budget_min', 'budget_max', 'project_type', 'property_type', 'timeline', 'description', 'status', 'score'];
+        const dbFieldMap = {
+            'firstName': 'first_name',
+            'lastName': 'last_name',
+            'budgetMin': 'budget_min',
+            'budgetMax': 'budget_max',
+            'projectType': 'project_type',
+            'propertyType': 'property_type'
+        };
+        
+        const setClause = [];
+        const values = [];
+        let paramIndex = 1;
+        
+        for (const [key, value] of Object.entries(updateFields)) {
+            const dbField = dbFieldMap[key] || key;
+            if (allowedFields.includes(dbField) && value !== undefined) {
+                setClause.push(`${dbField} = $${paramIndex}`);
+                values.push(value);
+                paramIndex++;
+            }
+        }
+        
+        if (setClause.length === 0) {
+            return res.status(400).json({ error: 'No valid fields to update' });
+        }
+        
+        setClause.push(`updated_at = NOW()`);
+        values.push(id);
+        
         const updateResult = await pool.query(`
-      UPDATE leads SET
-        first_name = $1, last_name = $2, email = $3, phone = $4, city = $5,
-        budget_min = $6, budget_max = $7, project_type = $8, property_type = $9,
-        timeline = $10, description = $11, status = $12, score = $13,
-        updated_at = NOW()
-      WHERE id = $14
-      RETURNING *
-    `, [
-            firstName, lastName, email, phone, city, budgetMin, budgetMax,
-            projectType, propertyType, timeline, description, status, score, id
-        ]);
+            UPDATE leads SET ${setClause.join(', ')}
+            WHERE id = $${paramIndex}
+            RETURNING *
+        `, values);
         if (updateResult.rows.length === 0) {
             return res.status(404).json({ error: 'Lead not found' });
         }
