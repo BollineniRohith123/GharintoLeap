@@ -22,6 +22,10 @@ const pool = new pg_1.Pool({
     database: 'gharinto_dev',
     user: 'postgres',
     password: 'postgres',
+    ssl: false,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 30000,
+    max: 10
 });
 // Middleware
 app.use((0, cors_1.default)({
@@ -75,6 +79,75 @@ const requirePermission = (permission) => {
     };
 };
 // ==================== AUTHENTICATION ENDPOINTS ====================
+// Registration endpoint
+app.post('/auth/register', async (req, res) => {
+    try {
+        const { email, password, firstName, lastName, phone, city, userType = 'customer' } = req.body;
+        if (!email || !password || !firstName || !lastName) {
+            return res.status(400).json({ error: 'Required fields missing' });
+        }
+        const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+        if (existing.rows.length > 0) {
+            return res.status(409).json({ error: 'Email already exists' });
+        }
+        const passwordHash = await bcryptjs_1.default.hash(password, 10);
+        const userResult = await pool.query(`
+      INSERT INTO users (email, password_hash, first_name, last_name, phone, city, is_active, email_verified)
+      VALUES ($1, $2, $3, $4, $5, $6, true, true) RETURNING *
+    `, [email, passwordHash, firstName, lastName, phone, city]);
+        const user = userResult.rows[0];
+        const token = jsonwebtoken_1.default.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '24h' });
+        res.status(201).json({
+            token,
+            user: {
+                id: user.id,
+                email: user.email,
+                firstName: user.first_name,
+                lastName: user.last_name,
+                phone: user.phone,
+                city: user.city
+            }
+        });
+    }
+    catch (error) {
+        console.error('Registration error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+// Password reset endpoints
+app.post('/auth/forgot-password', async (req, res) => {
+    try {
+        const { email } = req.body;
+        const user = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+        if (user.rows.length > 0) {
+            const resetToken = jsonwebtoken_1.default.sign({ userId: user.rows[0].id }, JWT_SECRET, { expiresIn: '1h' });
+            await pool.query('INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)', [user.rows[0].id, resetToken, new Date(Date.now() + 3600000)]);
+            console.log(`Reset token for ${email}: ${resetToken}`); // In production, send email
+        }
+        res.json({ message: 'Reset link sent if email exists' });
+    }
+    catch (error) {
+        console.error('Forgot password error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+app.post('/auth/reset-password', async (req, res) => {
+    try {
+        const { token, newPassword } = req.body;
+        if (!token || !newPassword) {
+            return res.status(400).json({ error: 'Token and new password required' });
+        }
+        const decoded = jsonwebtoken_1.default.verify(token, JWT_SECRET);
+        const passwordHash = await bcryptjs_1.default.hash(newPassword, 10);
+        await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, decoded.userId]);
+        await pool.query('UPDATE password_reset_tokens SET used_at = NOW() WHERE token = $1', [token]);
+        res.json({ message: 'Password reset successful' });
+    }
+    catch (error) {
+        console.error('Reset password error:', error);
+        res.status(400).json({ error: 'Invalid or expired token' });
+    }
+});
 app.post('/auth/login', async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -746,6 +819,192 @@ app.delete('/projects/:id', authenticateToken, requirePermission('projects.manag
     catch (error) {
         console.error('Delete project error:', error);
         res.status(500).json({ error: 'Internal server error' });
+    }
+});
+// ==================== LEAD MANAGEMENT ENDPOINTS ====================
+// ==================== WALLET & FINANCIAL ENDPOINTS ====================
+app.get('/wallet', authenticateToken, async (req, res) => {
+    try {
+        let wallet = await pool.query('SELECT * FROM wallets WHERE user_id = $1', [req.user.id]);
+        if (wallet.rows.length === 0) {
+            const newWallet = await pool.query('INSERT INTO wallets (user_id, balance, credit_limit) VALUES ($1, 0, 100000) RETURNING *', [req.user.id]);
+            wallet = newWallet;
+        }
+        res.json(wallet.rows[0]);
+    }
+    catch (error) {
+        console.error('Wallet error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+app.get('/wallet/transactions', authenticateToken, async (req, res) => {
+    try {
+        const transactions = await pool.query(`
+      SELECT t.*, w.user_id FROM transactions t 
+      JOIN wallets w ON t.wallet_id = w.id 
+      WHERE w.user_id = $1 ORDER BY t.created_at DESC LIMIT 50
+    `, [req.user.id]);
+        res.json({ transactions: transactions.rows });
+    }
+    catch (error) {
+        console.error('Transactions error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+app.get('/quotations', authenticateToken, async (req, res) => {
+    try {
+        const quotations = await pool.query(`
+      SELECT q.*, u.first_name, u.last_name, p.title as project_title
+      FROM quotations q 
+      JOIN users u ON q.client_id = u.id 
+      LEFT JOIN projects p ON q.project_id = p.id
+      WHERE q.client_id = $1 OR $2 = ANY(ARRAY['admin', 'finance_manager', 'super_admin'])
+      ORDER BY q.created_at DESC
+    `, [req.user.id, req.user.roles?.[0] || 'customer']);
+        res.json({ quotations: quotations.rows });
+    }
+    catch (error) {
+        console.error('Quotations error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+app.post('/quotations', authenticateToken, requirePermission('finance.create'), async (req, res) => {
+    try {
+        const { clientId, projectId, title, items, validUntil } = req.body;
+        if (!clientId || !title || !items || !Array.isArray(items)) {
+            return res.status(400).json({ error: 'Required fields missing' });
+        }
+        const totalAmount = items.reduce((sum, item) => {
+            return sum + (item.quantity * item.unitPrice);
+        }, 0);
+        const quotationNumber = `QUO-${Date.now()}`;
+        const quotationResult = await pool.query(`
+      INSERT INTO quotations (quotation_number, client_id, project_id, title, total_amount, valid_until, created_by, status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft') RETURNING *
+    `, [quotationNumber, clientId, projectId, title, totalAmount, validUntil, req.user.id]);
+        res.status(201).json(quotationResult.rows[0]);
+    }
+    catch (error) {
+        console.error('Create quotation error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+app.get('/invoices', authenticateToken, async (req, res) => {
+    try {
+        const invoices = await pool.query(`
+      SELECT i.*, u.first_name, u.last_name, p.title as project_title
+      FROM invoices i 
+      JOIN users u ON i.client_id = u.id 
+      LEFT JOIN projects p ON i.project_id = p.id
+      WHERE i.client_id = $1 OR $2 = ANY(ARRAY['admin', 'finance_manager', 'super_admin'])
+      ORDER BY i.created_at DESC
+    `, [req.user.id, req.user.roles?.[0] || 'customer']);
+        res.json({ invoices: invoices.rows });
+    }
+    catch (error) {
+        console.error('Invoices error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+// ==================== EMPLOYEE MANAGEMENT ENDPOINTS ====================
+app.get('/employees', authenticateToken, requirePermission('employees.view'), async (req, res) => {
+    try {
+        const employees = await pool.query(`
+      SELECT u.*, ep.employee_id, ep.department, ep.designation, ep.joining_date, ep.salary
+      FROM users u 
+      JOIN employee_profiles ep ON u.id = ep.user_id
+      WHERE ep.is_active = true
+      ORDER BY ep.joining_date DESC
+    `);
+        res.json({ employees: employees.rows });
+    }
+    catch (error) {
+        console.error('Employees error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+app.post('/employees/attendance', authenticateToken, async (req, res) => {
+    try {
+        const { userId, date, checkInTime, checkOutTime, status } = req.body;
+        const empId = userId || req.user.id;
+        const attendance = await pool.query(`
+      INSERT INTO employee_attendance (user_id, date, check_in_time, check_out_time, status)
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (user_id, date) DO UPDATE SET
+      check_in_time = $3, check_out_time = $4, status = $5, updated_at = NOW()
+      RETURNING *
+    `, [empId, date, checkInTime, checkOutTime, status]);
+        res.json(attendance.rows[0]);
+    }
+    catch (error) {
+        console.error('Attendance error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+// ==================== COMPLAINTS ENDPOINTS ====================
+app.get('/complaints', authenticateToken, async (req, res) => {
+    try {
+        const complaints = await pool.query(`
+      SELECT c.*, p.title as project_title, u.first_name, u.last_name
+      FROM complaints c 
+      LEFT JOIN projects p ON c.project_id = p.id
+      LEFT JOIN users u ON c.assigned_to = u.id
+      WHERE c.complainant_id = $1 OR $2 = ANY(ARRAY['admin', 'support', 'super_admin'])
+      ORDER BY c.created_at DESC
+    `, [req.user.id, req.user.roles?.[0] || 'customer']);
+        res.json({ complaints: complaints.rows });
+    }
+    catch (error) {
+        console.error('Complaints error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+app.post('/complaints', authenticateToken, async (req, res) => {
+    try {
+        const { title, description, priority = 'medium', projectId } = req.body;
+        if (!title || !description) {
+            return res.status(400).json({ error: 'Title and description required' });
+        }
+        const complaintNumber = `COMP-${Date.now()}`;
+        const complaint = await pool.query(`
+      INSERT INTO complaints (complaint_number, title, description, priority, project_id, 
+                            complainant_id, complainant_name, complainant_email, status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open') RETURNING *
+    `, [
+            complaintNumber, title, description, priority, projectId, req.user.id,
+            `${req.user.firstName || ''} ${req.user.lastName || ''}`, req.user.email
+        ]);
+        res.status(201).json(complaint.rows[0]);
+    }
+    catch (error) {
+        console.error('Create complaint error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+// ==================== NOTIFICATIONS ENDPOINTS ====================
+app.get('/notifications', authenticateToken, async (req, res) => {
+    try {
+        const notifications = await pool.query(`
+      SELECT * FROM notifications 
+      WHERE user_id = $1 AND is_archived = false
+      ORDER BY created_at DESC LIMIT 50
+    `, [req.user.id]);
+        res.json({ notifications: notifications.rows });
+    }
+    catch (error) {
+        console.error('Notifications error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+app.put('/notifications/:id/read', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        await pool.query('UPDATE notifications SET is_read = true, read_at = NOW() WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+        res.json({ message: 'Notification marked as read' });
+    }
+    catch (error) {
+        console.error('Mark notification read error:', error);
+        res.status(500).json({ error: 'Server error' });
     }
 });
 // ==================== LEAD MANAGEMENT ENDPOINTS ====================
