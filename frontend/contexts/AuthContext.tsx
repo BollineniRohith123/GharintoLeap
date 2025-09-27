@@ -42,20 +42,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(localStorage.getItem('auth_token'));
   const [user, setUser] = useState<User | null>(null);
 
-  const authenticatedBackend = token 
-    ? backend.with({ auth: () => ({ authorization: `Bearer ${token}` }) })
-    : backend;
+  // Set token in API client when it changes
+  useEffect(() => {
+    apiClient.setToken(token);
+  }, [token]);
 
   const { data: profile, isLoading, error } = useQuery({
     queryKey: ['profile'],
-    queryFn: () => authenticatedBackend.users.getProfile(),
-    enabled: !!token,
-    staleTime: 1000 * 60 * 10, // 10 minutes
-  });
-
-  const { data: permissions } = useQuery({
-    queryKey: ['user-permissions'],
-    queryFn: () => authenticatedBackend.system.getUserPermissions({}),
+    queryFn: () => apiClient.getUserProfile(),
     enabled: !!token,
     staleTime: 1000 * 60 * 10, // 10 minutes
   });
