@@ -879,7 +879,7 @@ app.post('/quotations', authenticateToken, requirePermission('finance.create'), 
         }, 0);
         const quotationNumber = `QUO-${Date.now()}`;
         const quotationResult = await pool.query(`
-      INSERT INTO quotations (quotation_number, client_id, project_id, title, total_amount, valid_until, created_by, status)
+      INSERT INTO quotations (quotation_number, client_id, project_id, title, total_amount, valid_until, prepared_by, status)
       VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft') RETURNING *
     `, [quotationNumber, clientId, projectId, title, totalAmount, validUntil, req.user.id]);
         res.status(201).json(quotationResult.rows[0]);
