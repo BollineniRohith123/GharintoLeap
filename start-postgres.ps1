@@ -1,29 +1,29 @@
 #!/usr/bin/env pwsh
 
-# PostgreSQL Service Starter
+# PostgreSQL Service Starter (PowerShell v5 compatible)
 # Run this as Administrator to start PostgreSQL service
 
-Write-Host "🐘 POSTGRESQL SERVICE STARTER" -ForegroundColor Cyan
-Write-Host "═══════════════════════════════════════════" -ForegroundColor Cyan
+Write-Host "POSTGRESQL SERVICE STARTER"
+Write-Host "========================================="
 
 # Check if running as Administrator
 $currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 $isAdmin = $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
 if (-not $isAdmin) {
-    Write-Host "❌ This script requires Administrator privileges!" -ForegroundColor Red
-    Write-Host "💡 Right-click PowerShell and 'Run as Administrator'" -ForegroundColor Yellow
-    Write-Host "Then run: .\start-postgres.ps1" -ForegroundColor Yellow
+    Write-Host "This script requires Administrator privileges!" -ForegroundColor Red
+    Write-Host "Right-click PowerShell and 'Run as Administrator'"
+    Write-Host "Then run: .\start-postgres.ps1"
     Read-Host "Press Enter to exit"
     exit 1
 }
 
-Write-Host "✅ Running as Administrator" -ForegroundColor Green
+Write-Host "Running as Administrator" -ForegroundColor Green
 
 # Try different PostgreSQL service names
 $serviceNames = @(
     "postgresql-x64-16",
-    "postgresql-16", 
+    "postgresql-16",
     "PostgreSQL",
     "postgres"
 )
@@ -31,99 +31,101 @@ $serviceNames = @(
 $serviceStarted = $false
 
 foreach ($serviceName in $serviceNames) {
-    Write-Host "🔍 Checking service: $serviceName" -ForegroundColor Yellow
-    
+    Write-Host "Checking service: $serviceName"
     $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-    
+
     if ($service) {
-        Write-Host "✅ Found service: $serviceName" -ForegroundColor Green
-        Write-Host "📊 Current status: $($service.Status)" -ForegroundColor Cyan
-        
+        Write-Host "Found service: $serviceName"
+        Write-Host "Current status: $($service.Status)"
+
         if ($service.Status -eq "Running") {
-            Write-Host "🎉 PostgreSQL is already running!" -ForegroundColor Green
+            Write-Host "PostgreSQL is already running"
             $serviceStarted = $true
             break
         } else {
-            Write-Host "🚀 Starting PostgreSQL service..." -ForegroundColor Yellow
+            Write-Host "Starting PostgreSQL service..."
             try {
                 Start-Service -Name $serviceName
                 Start-Sleep -Seconds 3
-                
+
                 $service = Get-Service -Name $serviceName
                 if ($service.Status -eq "Running") {
-                    Write-Host "✅ PostgreSQL started successfully!" -ForegroundColor Green
+                    Write-Host "PostgreSQL started successfully"
                     $serviceStarted = $true
                     break
                 } else {
-                    Write-Host "❌ Failed to start service: $serviceName" -ForegroundColor Red
+                    Write-Host "Failed to start service: $serviceName" -ForegroundColor Red
                 }
             } catch {
-                Write-Host "❌ Error starting service: $($_.Exception.Message)" -ForegroundColor Red
+                Write-Host "Error starting service: $($_.Exception.Message)" -ForegroundColor Red
             }
         }
     } else {
-        Write-Host "⚠️  Service not found: $serviceName" -ForegroundColor Yellow
+        Write-Host "Service not found: $serviceName"
     }
 }
 
 if ($serviceStarted) {
-    Write-Host "`n🎯 PostgreSQL Connection Test" -ForegroundColor Cyan
-    Write-Host "═══════════════════════════════════════════" -ForegroundColor Cyan
-    
+    Write-Host "`nPostgreSQL Connection Test"
+    Write-Host "========================================="
+
     # Test connection
-    Write-Host "🔌 Testing connection to PostgreSQL..." -ForegroundColor Yellow
-    
-    # Add PostgreSQL to PATH temporarily
+    Write-Host "Testing connection to PostgreSQL..."
+
+    # Add PostgreSQL to PATH temporarily (common install path)
     $env:PATH += ";C:\Program Files\PostgreSQL\16\bin"
-    
+
     try {
         $output = & psql -h localhost -U postgres -d postgres -c "SELECT version();" 2>&1
-        
+
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "✅ PostgreSQL connection successful!" -ForegroundColor Green
-            Write-Host "📊 Database server is ready" -ForegroundColor Cyan
-            
-            Write-Host "`n🗄️  Checking gharinto_db database..." -ForegroundColor Yellow
+            Write-Host "PostgreSQL connection successful" -ForegroundColor Green
+            Write-Host "Database server is ready"
+
+            Write-Host "`nChecking gharinto_db database..."
             $dbOutput = & psql -h localhost -U postgres -l 2>&1
-            
-            if ($dbOutput -match "gharinto_db") {
-                Write-Host "✅ gharinto_db database exists" -ForegroundColor Green
-            } else {
-                Write-Host "⚠️  gharinto_db database not found" -ForegroundColor Yellow
-                Write-Host "💡 Creating gharinto_db database..." -ForegroundColor Cyan
-                
-                $createDb = & createdb -h localhost -U postgres gharinto_db 2>&1
-                if ($LASTEXITCODE -eq 0) {
-                    Write-Host "✅ gharinto_db database created successfully!" -ForegroundColor Green
+
+            # Ensure both gharinto_db and gharinto_dev exist (some components expect one or the other)
+            $neededDbs = @('gharinto_db','gharinto_dev')
+            foreach ($dbName in $neededDbs) {
+                if ($dbOutput -match $dbName) {
+                    Write-Host "$dbName database exists" -ForegroundColor Green
                 } else {
-                    Write-Host "❌ Failed to create database: $createDb" -ForegroundColor Red
+                    Write-Host "$dbName database not found"
+                    Write-Host "Creating $dbName database..."
+
+                    $createDb = & createdb -h localhost -U postgres $dbName 2>&1
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-Host "$dbName database created successfully" -ForegroundColor Green
+                    } else {
+                        Write-Host "Failed to create database $dbName: $createDb" -ForegroundColor Red
+                    }
                 }
             }
-            
+
         } else {
-            Write-Host "❌ PostgreSQL connection failed!" -ForegroundColor Red
-            Write-Host "🔍 Output: $output" -ForegroundColor Yellow
-            Write-Host "💡 Check if password is 'postgres' or needs to be reset" -ForegroundColor Cyan
+            Write-Host "PostgreSQL connection failed" -ForegroundColor Red
+            Write-Host "Output: $output"
+            Write-Host "Check if the postgres user/password is set or needs to be reset"
         }
-        
+
     } catch {
-        Write-Host "❌ Error testing connection: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "Error testing connection: $($_.Exception.Message)" -ForegroundColor Red
     }
-    
-    Write-Host "`n🎯 Next Steps:" -ForegroundColor Cyan
-    Write-Host "═══════════════════════════════════════════" -ForegroundColor Cyan
-    Write-Host "1️⃣  Test connection: node postgres-reset.js --test-connection" -ForegroundColor White
-    Write-Host "2️⃣  Create users: node postgres-reset.js --create-users" -ForegroundColor White
-    Write-Host "3️⃣  Start server: cd backend && npm start" -ForegroundColor White
-    
+
+    Write-Host "`nNext Steps:"
+    Write-Host "1) Test connection: node postgres-reset.js --test-connection"
+    Write-Host "2) Create users: node postgres-reset.js --create-users"
+    Write-Host "3) Start server: cd backend && npm start"
+
 } else {
-    Write-Host "`n❌ Unable to start PostgreSQL service!" -ForegroundColor Red
-    Write-Host "💡 Troubleshooting:" -ForegroundColor Yellow
-    Write-Host "   1. Check if PostgreSQL is installed" -ForegroundColor White
-    Write-Host "   2. Verify installation path: C:\Program Files\PostgreSQL\16\" -ForegroundColor White
-    Write-Host "   3. Try manual start: services.msc -> PostgreSQL" -ForegroundColor White
-    Write-Host "   4. Check Windows Event Viewer for errors" -ForegroundColor White
+    Write-Host "`nUnable to start PostgreSQL service" -ForegroundColor Red
+    Write-Host "Troubleshooting:"
+    Write-Host "  1) Check if PostgreSQL is installed"
+    Write-Host "  2) Verify installation path: C:\\Program Files\\PostgreSQL\\16\\"
+    Write-Host "  3) Try manual start: services.msc -> PostgreSQL"
+    Write-Host "  4) Check Windows Event Viewer for errors"
 }
 
-Write-Host "`n📱 Press Enter to continue..." -ForegroundColor Cyan
+Write-Host "`nPress Enter to continue..."
 Read-Host

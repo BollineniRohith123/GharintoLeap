@@ -15,13 +15,19 @@ const fs_1 = __importDefault(require("fs"));
 const app = (0, express_1.default)();
 const PORT = 4000;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key-change-in-production';
-// Database connection
+// Database connection (configurable via environment variables)
+const DB_NAME = process.env.DB_NAME || 'gharinto_db';
+const DB_USER = process.env.DB_USER || 'postgres';
+const DB_PASSWORD = process.env.DB_PASSWORD || 'postgres';
+const DB_HOST = process.env.DB_HOST || 'localhost';
+const DB_PORT = parseInt(process.env.DB_PORT || '5432', 10);
+
 const pool = new pg_1.Pool({
-    host: 'localhost',
-    port: 5432,
-    database: 'gharinto_dev',
-    user: 'postgres',
-    password: 'postgres',
+    host: DB_HOST,
+    port: DB_PORT,
+    database: DB_NAME,
+    user: DB_USER,
+    password: DB_PASSWORD,
     ssl: false,
     connectionTimeoutMillis: 5000,
     idleTimeoutMillis: 30000,
