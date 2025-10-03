@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gharinto Leap - Login Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 900px;
+            width: 100%;
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+        
+        .content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            padding: 30px;
+        }
+        
+        .login-section, .result-section {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+            font-size: 14px;
+        }
+        
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        button {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .result {
+            background: #f5f5f5;
+            border-radius: 8px;
+            padding: 20px;
+            min-height: 300px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        
+        .success {
+            color: #10b981;
+            font-weight: 600;
+        }
+        
+        .error {
+            color: #ef4444;
+            font-weight: 600;
+        }
+        
+        .info {
+            color: #3b82f6;
+            font-weight: 600;
+        }
+        
+        .test-accounts {
+            background: #f0f9ff;
+            border-left: 4px solid #3b82f6;
+            padding: 15px;
+            margin-top: 20px;
+            border-radius: 4px;
+        }
+        
+        .test-accounts h3 {
+            color: #1e40af;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+        
+        .test-accounts ul {
+            list-style: none;
+            font-size: 12px;
+        }
+        
+        .test-accounts li {
+            padding: 5px 0;
+            color: #1e3a8a;
+        }
+        
+        @media (max-width: 768px) {
+            .content {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔐 Gharinto Leap - Authentication Test</h1>
+            <p>Test the login functionality and API connectivity</p>
+        </div>
+        
+        <div class="content">
+            <div class="login-section">
+                <h2 style="margin-bottom: 20px; color: #333;">Login Form</h2>
+                
+                <div class="form-group">
+                    <label for="testAccount">Quick Select Test Account:</label>
+                    <select id="testAccount" onchange="fillCredentials()">
+                        <option value="">-- Select a test account --</option>
+                        <option value="admin@gharinto.com:admin123">Admin (13 permissions)</option>
+                        <option value="superadmin@gharinto.com:superadmin123">Super Admin (17 permissions)</option>
+                        <option value="pm@gharinto.com:pm123">Project Manager (4 permissions)</option>
+                        <option value="designer@gharinto.com:designer123">Interior Designer (4 permissions)</option>
+                        <option value="customer@gharinto.com:customer123">Customer (1 permission)</option>
+                        <option value="vendor@gharinto.com:vendor123">Vendor (3 permissions)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="email">Email:</label>
+                    <input type="email" id="email" placeholder="admin@gharinto.com" value="admin@gharinto.com">
+                </div>
+                
+                <div class="form-group">
+                    <label for="password">Password:</label>
+                    <input type="password" id="password" placeholder="admin123" value="admin123">
+                </div>
+                
+                <button onclick="testLogin()" id="loginBtn">🚀 Test Login</button>
+                
+                <button onclick="testProfile()" id="profileBtn" style="margin-top: 10px; background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
+                    👤 Test Get Profile
+                </button>
+                
+                <button onclick="clearResults()" style="margin-top: 10px; background: #6b7280;">
+                    🗑️ Clear Results
+                </button>
+                
+                <div class="test-accounts">
+                    <h3>📋 Available Test Accounts</h3>
+                    <ul>
+                        <li>✅ admin@gharinto.com / admin123</li>
+                        <li>✅ superadmin@gharinto.com / superadmin123</li>
+                        <li>✅ pm@gharinto.com / pm123</li>
+                        <li>✅ designer@gharinto.com / designer123</li>
+                        <li>✅ customer@gharinto.com / customer123</li>
+                        <li>✅ vendor@gharinto.com / vendor123</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="result-section">
+                <h2 style="margin-bottom: 20px; color: #333;">API Response</h2>
+                <div id="result" class="result">
+<span class="info">Ready to test! 🎯</span>
+
+Instructions:
+1. Select a test account or enter credentials
+2. Click "Test Login" to authenticate
+3. Click "Test Get Profile" to fetch user data
+
+Backend: http://localhost:4000
+Frontend: http://localhost:5173
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const API_BASE_URL = 'http://localhost:4000';
+        let authToken = null;
+        
+        function fillCredentials() {
+            const select = document.getElementById('testAccount');
+            const value = select.value;
+            if (value) {
+                const [email, password] = value.split(':');
+                document.getElementById('email').value = email;
+                document.getElementById('password').value = password;
+            }
+        }
+        
+        function log(message, type = 'info') {
+            const result = document.getElementById('result');
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'success' ? 'success' : type === 'error' ? 'error' : 'info';
+            result.innerHTML += `\n<span class="${className}">[${timestamp}] ${message}</span>`;
+            result.scrollTop = result.scrollHeight;
+        }
+        
+        function clearResults() {
+            document.getElementById('result').innerHTML = '<span class="info">Results cleared. Ready for new test! 🎯</span>';
+            authToken = null;
+        }
+        
+        async function testLogin() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const loginBtn = document.getElementById('loginBtn');
+            
+            if (!email || !password) {
+                log('❌ Please enter email and password', 'error');
+                return;
+            }
+            
+            loginBtn.disabled = true;
+            loginBtn.textContent = '⏳ Logging in...';
+            
+            log('🔐 Attempting login...', 'info');
+            log(`📧 Email: ${email}`, 'info');
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/auth/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ email, password }),
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    authToken = data.token;
+                    log('✅ Login successful!', 'success');
+                    log(`👤 User: ${data.user.firstName} ${data.user.lastName}`, 'success');
+                    log(`📧 Email: ${data.user.email}`, 'success');
+                    log(`🎭 Roles: ${data.user.roles.join(', ')}`, 'success');
+                    log(`🔑 Permissions: ${data.user.permissions.length}`, 'success');
+                    log(`🎫 Token: ${data.token.substring(0, 50)}...`, 'success');
+                    log('\n📋 Full Response:', 'info');
+                    log(JSON.stringify(data, null, 2), 'info');
+                } else {
+                    log(`❌ Login failed: ${data.error}`, 'error');
+                    log(`📊 Status: ${response.status}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Network error: ${error.message}`, 'error');
+                log('💡 Make sure the backend server is running on port 4000', 'error');
+            } finally {
+                loginBtn.disabled = false;
+                loginBtn.textContent = '🚀 Test Login';
+            }
+        }
+        
+        async function testProfile() {
+            const profileBtn = document.getElementById('profileBtn');
+            
+            if (!authToken) {
+                log('❌ Please login first to get an auth token', 'error');
+                return;
+            }
+            
+            profileBtn.disabled = true;
+            profileBtn.textContent = '⏳ Fetching profile...';
+            
+            log('\n👤 Fetching user profile...', 'info');
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/users/profile`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                    },
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    log('✅ Profile retrieved successfully!', 'success');
+                    log(`👤 Name: ${data.firstName} ${data.lastName}`, 'success');
+                    log(`📧 Email: ${data.email}`, 'success');
+                    log(`📱 Phone: ${data.phone || 'N/A'}`, 'success');
+                    log(`🏙️ City: ${data.city || 'N/A'}`, 'success');
+                    log(`🎭 Roles: ${data.roles.join(', ')}`, 'success');
+                    log(`🔑 Permissions: ${data.permissions.length}`, 'success');
+                    log(`📋 Menus: ${data.menus.length}`, 'success');
+                    
+                    if (data.menus.length > 0) {
+                        log('\n📂 Available Menus:', 'info');
+                        data.menus.forEach(menu => {
+                            log(`   - ${menu.displayName} (${menu.path})`, 'info');
+                        });
+                    }
+                    
+                    log('\n📋 Full Response:', 'info');
+                    log(JSON.stringify(data, null, 2), 'info');
+                } else {
+                    log(`❌ Profile fetch failed: ${data.error}`, 'error');
+                    log(`📊 Status: ${response.status}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Network error: ${error.message}`, 'error');
+            } finally {
+                profileBtn.disabled = false;
+                profileBtn.textContent = '👤 Test Get Profile';
+            }
+        }
+        
+        // Allow Enter key to submit
+        document.getElementById('password').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                testLogin();
+            }
+        });
+    </script>
+</body>
+</html>
+
