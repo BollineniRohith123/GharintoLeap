@@ -49,7 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const { data: profile, isLoading, error } = useQuery({
     queryKey: ['profile'],
-    queryFn: () => apiClient.getUserProfile(),
+    queryFn: () => apiClient.getProfile(),
     enabled: !!token,
     staleTime: 1000 * 60 * 10, // 10 minutes
   });
