@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '../../contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,6 +25,26 @@ import {
 } from 'lucide-react';
 
 export default function SettingsPage() {
+  const { token } = useAuth();
+
+  // Fetch user profile data
+  const { data: userProfile, isLoading } = useQuery({
+    queryKey: ['user-profile'],
+    queryFn: async () => {
+      const response = await fetch('http://localhost:4000/users/profile', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch profile data');
+      }
+      return response.json();
+    },
+    enabled: !!token,
+  });
+
   const [profile, setProfile] = useState({
     firstName: 'John',
     lastName: 'Doe',
@@ -34,6 +56,23 @@ export default function SettingsPage() {
     website: 'https://designstudiopro.com',
     location: 'Mumbai, Maharashtra'
   });
+
+  // Update profile state when user data is loaded
+  useEffect(() => {
+    if (userProfile) {
+      setProfile(prev => ({
+        ...prev,
+        firstName: userProfile.firstName || prev.firstName,
+        lastName: userProfile.lastName || prev.lastName,
+        email: userProfile.email || prev.email,
+        phone: userProfile.phone || prev.phone,
+        bio: userProfile.bio || prev.bio,
+        company: userProfile.company || prev.company,
+        website: userProfile.website || prev.website,
+        location: userProfile.location || prev.location,
+      }));
+    }
+  }, [userProfile]);
 
   const [notifications, setNotifications] = useState({
     emailNotifications: true,

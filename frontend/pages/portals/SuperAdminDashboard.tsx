@@ -15,20 +15,38 @@ import {
 import backend from '~backend/client';
 import { useAuth } from '../../contexts/AuthContext';
 
-export default function SuperAdminDashboard() {
+interface SuperAdminDashboardProps {
+  data?: any;
+}
+
+export default function SuperAdminDashboard({ data: propData }: SuperAdminDashboardProps = {}) {
   const { token } = useAuth();
 
-  const authenticatedBackend = token 
+  const authenticatedBackend = token
     ? backend.with({ auth: () => ({ authorization: `Bearer ${token}` }) })
     : backend;
 
-  const { data: dashboard, isLoading } = useQuery({
-    queryKey: ['dashboard'],
-    queryFn: () => authenticatedBackend.analytics.getDashboard(),
-    enabled: !!token,
+  const { data: fetchedData, isLoading } = useQuery({
+    queryKey: ['super-admin-dashboard'],
+    queryFn: async () => {
+      const response = await fetch('http://localhost:4000/dashboard/super-admin', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch dashboard data');
+      }
+      return response.json();
+    },
+    enabled: !!token && !propData, // Only fetch if no data is provided as prop
   });
 
-  if (isLoading) {
+  // Use prop data if provided, otherwise use fetched data
+  const dashboard = propData || fetchedData;
+
+  if (isLoading && !propData) {
     return (
       <div className="space-y-6">
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -66,13 +84,13 @@ export default function SuperAdminDashboard() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Leads</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Users</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{dashboard?.totalLeads || 0}</div>
+            <div className="text-2xl font-bold">{dashboard?.users?.total || 0}</div>
             <p className="text-xs text-muted-foreground">
-              <span className="text-green-600">+{dashboard?.leadsThisMonth || 0}</span> this month
+              <span className="text-green-600">{dashboard?.users?.active || 0}</span> active users
             </p>
           </CardContent>
         </Card>
@@ -83,9 +101,9 @@ export default function SuperAdminDashboard() {
             <FolderOpen className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{dashboard?.totalProjects || 0}</div>
+            <div className="text-2xl font-bold">{dashboard?.projects?.total || 0}</div>
             <p className="text-xs text-muted-foreground">
-              <span className="text-blue-600">{dashboard?.activeProjects || 0}</span> active
+              <span className="text-blue-600">{dashboard?.projects?.active || 0}</span> active
             </p>
           </CardContent>
         </Card>
@@ -97,10 +115,10 @@ export default function SuperAdminDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              ₹{((dashboard?.totalRevenue || 0) / 100000).toFixed(1)}L
+              ₹{((dashboard?.projects?.total_value || 0) / 100000).toFixed(1)}L
             </div>
             <p className="text-xs text-muted-foreground">
-              <span className="text-green-600">+₹{((dashboard?.revenueThisMonth || 0) / 100000).toFixed(1)}L</span> this month
+              <span className="text-green-600">+₹{((dashboard?.revenue?.this_month || 0) / 100000).toFixed(1)}L</span> this month
             </p>
           </CardContent>
         </Card>
@@ -111,7 +129,7 @@ export default function SuperAdminDashboard() {
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{dashboard?.conversionRate || 0}%</div>
+            <div className="text-2xl font-bold">{dashboard?.leads?.conversion_rate || 0}%</div>
             <p className="text-xs text-muted-foreground">
               Lead to project conversion
             </p>
@@ -175,6 +193,71 @@ export default function SuperAdminDashboard() {
                   </div>
                 </div>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* System Management */}
+      <div className="mt-8">
+        <Card>
+          <CardHeader>
+            <CardTitle>System Management</CardTitle>
+            <CardDescription>Monitor and manage system components</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <a
+                href="/system/health"
+                className="flex items-center p-4 border rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center mr-3">
+                  <span className="text-green-600 text-xl">🔍</span>
+                </div>
+                <div>
+                  <h3 className="font-medium">System Health</h3>
+                  <p className="text-sm text-gray-600">Monitor server and database status</p>
+                </div>
+              </a>
+
+              <a
+                href="/system/settings"
+                className="flex items-center p-4 border rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center mr-3">
+                  <span className="text-blue-600 text-xl">⚙️</span>
+                </div>
+                <div>
+                  <h3 className="font-medium">System Settings</h3>
+                  <p className="text-sm text-gray-600">Configure application settings</p>
+                </div>
+              </a>
+
+              <a
+                href="/system/audit-logs"
+                className="flex items-center p-4 border rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center mr-3">
+                  <span className="text-purple-600 text-xl">📋</span>
+                </div>
+                <div>
+                  <h3 className="font-medium">Audit Logs</h3>
+                  <p className="text-sm text-gray-600">View system activity logs</p>
+                </div>
+              </a>
+
+              <a
+                href="/system/roles"
+                className="flex items-center p-4 border rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center mr-3">
+                  <span className="text-orange-600 text-xl">🛡️</span>
+                </div>
+                <div>
+                  <h3 className="font-medium">Roles & Permissions</h3>
+                  <p className="text-sm text-gray-600">Manage roles and permissions</p>
+                </div>
+              </a>
             </div>
           </CardContent>
         </Card>

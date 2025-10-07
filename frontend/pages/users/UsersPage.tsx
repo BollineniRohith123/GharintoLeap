@@ -45,6 +45,8 @@ export default function UsersPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
+  const [showBulkActions, setShowBulkActions] = useState(false);
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -101,6 +103,49 @@ export default function UsersPage() {
     },
   });
 
+  // Bulk operations mutation
+  const bulkOperationMutation = useMutation({
+    mutationFn: async ({ operation, userIds, reason }: { operation: string; userIds: number[]; reason: string }) => {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch('http://localhost:4000/system/admin/bulk-user-operations', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          operation,
+          user_ids: userIds,  // Backend expects user_ids with underscore
+          reason,
+          data: {}
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Bulk operation failed');
+      }
+
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: 'Success',
+        description: `Bulk operation completed. Processed: ${data.processedCount || data.affected_users || selectedUserIds.length}`,
+      });
+      setSelectedUserIds([]);
+      setShowBulkActions(false);
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Error',
+        description: error.message || 'Bulk operation failed',
+        variant: 'destructive',
+      });
+    },
+  });
+
   const handleDeleteUser = (user: User) => {
     if (window.confirm(`Are you sure you want to delete ${user.firstName} ${user.lastName}?`)) {
       deleteUserMutation.mutate(user.id);
@@ -108,10 +153,60 @@ export default function UsersPage() {
   };
 
   const handleToggleUserStatus = (user: User) => {
+    const currentStatus = user.isActive || (user as any).is_active;
     toggleUserStatusMutation.mutate({
       userId: user.id,
-      isActive: !user.isActive,
+      isActive: !currentStatus,
     });
+  };
+
+  const handleSelectUser = (userId: number) => {
+    setSelectedUserIds(prev =>
+      prev.includes(userId)
+        ? prev.filter(id => id !== userId)
+        : [...prev, userId]
+    );
+  };
+
+  const handleSelectAll = () => {
+    if (selectedUserIds.length === usersData?.users?.length) {
+      setSelectedUserIds([]);
+    } else {
+      setSelectedUserIds(usersData?.users?.map(u => u.id) || []);
+    }
+  };
+
+  const handleBulkActivate = () => {
+    if (selectedUserIds.length === 0) return;
+    if (window.confirm(`Activate ${selectedUserIds.length} selected user(s)?`)) {
+      bulkOperationMutation.mutate({
+        operation: 'activate',
+        userIds: selectedUserIds,
+        reason: 'Bulk activation by SuperAdmin'
+      });
+    }
+  };
+
+  const handleBulkDeactivate = () => {
+    if (selectedUserIds.length === 0) return;
+    if (window.confirm(`Deactivate ${selectedUserIds.length} selected user(s)?`)) {
+      bulkOperationMutation.mutate({
+        operation: 'deactivate',
+        userIds: selectedUserIds,
+        reason: 'Bulk deactivation by SuperAdmin'
+      });
+    }
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedUserIds.length === 0) return;
+    if (window.confirm(`Delete ${selectedUserIds.length} selected user(s)? This action cannot be undone.`)) {
+      bulkOperationMutation.mutate({
+        operation: 'delete',
+        userIds: selectedUserIds,
+        reason: 'Bulk deletion by SuperAdmin'
+      });
+    }
   };
 
   const handleSearch = (e: React.FormEvent) => {
@@ -228,6 +323,56 @@ export default function UsersPage() {
         </CardContent>
       </Card>
 
+      {/* Bulk Actions Toolbar */}
+      {selectedUserIds.length > 0 && (
+        <Card className="bg-blue-900/20 border-blue-500/30">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <span className="text-white font-medium">
+                  {selectedUserIds.length} user(s) selected
+                </span>
+                <Button
+                  onClick={handleBulkActivate}
+                  size="sm"
+                  className="bg-green-600 hover:bg-green-700"
+                  disabled={bulkOperationMutation.isPending}
+                >
+                  <UserCheck className="h-4 w-4 mr-2" />
+                  Activate
+                </Button>
+                <Button
+                  onClick={handleBulkDeactivate}
+                  size="sm"
+                  className="bg-orange-600 hover:bg-orange-700"
+                  disabled={bulkOperationMutation.isPending}
+                >
+                  <UserX className="h-4 w-4 mr-2" />
+                  Deactivate
+                </Button>
+                <Button
+                  onClick={handleBulkDelete}
+                  size="sm"
+                  variant="destructive"
+                  disabled={bulkOperationMutation.isPending}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete
+                </Button>
+              </div>
+              <Button
+                onClick={() => setSelectedUserIds([])}
+                size="sm"
+                variant="ghost"
+                className="text-gray-300"
+              >
+                Clear Selection
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Users Table */}
       <Card className="bg-gray-900/50 border-gray-700">
         <CardHeader>
@@ -255,6 +400,14 @@ export default function UsersPage() {
             <Table>
               <TableHeader>
                 <TableRow className="border-gray-700">
+                  <TableHead className="text-gray-300 w-12">
+                    <input
+                      type="checkbox"
+                      checked={selectedUserIds.length === usersData?.users?.length && usersData?.users?.length > 0}
+                      onChange={handleSelectAll}
+                      className="h-4 w-4 rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500"
+                    />
+                  </TableHead>
                   <TableHead className="text-gray-300">User</TableHead>
                   <TableHead className="text-gray-300">Email</TableHead>
                   <TableHead className="text-gray-300">Roles</TableHead>
@@ -267,6 +420,14 @@ export default function UsersPage() {
               <TableBody>
                 {usersData?.users?.map((user) => (
                   <TableRow key={user.id} className="border-gray-700 hover:bg-gray-800/50">
+                    <TableCell>
+                      <input
+                        type="checkbox"
+                        checked={selectedUserIds.includes(user.id)}
+                        onChange={() => handleSelectUser(user.id)}
+                        className="h-4 w-4 rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500"
+                      />
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center space-x-3">
                         <div className="h-8 w-8 rounded-full bg-green-500 flex items-center justify-center text-white text-sm font-medium">
@@ -301,17 +462,17 @@ export default function UsersPage() {
                     <TableCell>
                       <Badge
                         className={`text-xs ${
-                          user.isActive
+                          (user.isActive || (user as any).is_active)
                             ? 'bg-green-500/20 text-green-300'
                             : 'bg-red-500/20 text-red-300'
                         }`}
                       >
-                        {user.isActive ? 'Active' : 'Inactive'}
+                        {(user.isActive || (user as any).is_active) ? 'Active' : 'Inactive'}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-gray-300">
-                      {user.createdAt
-                        ? new Date(user.createdAt).toLocaleDateString()
+                      {(user.createdAt || (user as any).created_at)
+                        ? new Date(user.createdAt || (user as any).created_at).toLocaleDateString()
                         : 'N/A'}
                     </TableCell>
                     <TableCell className="text-right">

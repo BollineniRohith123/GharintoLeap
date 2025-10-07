@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useAuthContext } from '../../contexts/AuthContext';
 import backend from '~backend/client';
+import FullSuperAdminDashboard from '../../pages/portals/SuperAdminDashboard';
 
 interface DashboardProps {
   userRole: string;
@@ -41,7 +42,23 @@ const RoleDashboard: React.FC<DashboardProps> = ({ userRole }) => {
       
       switch (userRole) {
         case 'super_admin':
-          data = await backend.analytics.getSuperAdminDashboard();
+          // Use direct fetch for super admin dashboard
+          const token = localStorage.getItem('auth_token');
+          if (token) {
+            const response = await fetch('http://localhost:4000/dashboard/super-admin', {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+            });
+            if (response.ok) {
+              data = await response.json();
+            } else {
+              throw new Error(`HTTP ${response.status}`);
+            }
+          } else {
+            throw new Error('No auth token found');
+          }
           break;
         case 'admin':
           data = await backend.analytics.getSuperAdminDashboard();
@@ -98,7 +115,7 @@ const RoleDashboard: React.FC<DashboardProps> = ({ userRole }) => {
         </Button>
       </div>
 
-      {userRole === 'super_admin' && <SuperAdminDashboard data={dashboardData} />}
+      {userRole === 'super_admin' && <FullSuperAdminDashboard data={dashboardData} />}
       {userRole === 'admin' && <AdminDashboard data={dashboardData} />}
       {userRole === 'interior_designer' && <DesignerDashboard data={dashboardData} />}
       {userRole === 'customer' && <CustomerDashboard data={dashboardData} />}
@@ -199,84 +216,7 @@ const AdminDashboard: React.FC<{ data: any }> = ({ data }) => (
   </div>
 );
 
-const SuperAdminDashboard: React.FC<{ data: any }> = ({ data }) => (
-  <div className="space-y-6">
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-      <MetricCard
-        title="Total Users"
-        value={data?.users?.total || 0}
-        description={`${data?.users?.new_this_month || 0} new this month`}
-        icon={<Users className="h-4 w-4" />}
-        trend={12}
-      />
-      <MetricCard
-        title="Active Projects"
-        value={data?.projects?.active || 0}
-        description={`₹${(data?.projects?.total_value || 0).toLocaleString()}`}
-        icon={<Building2 className="h-4 w-4" />}
-        trend={8}
-      />
-      <MetricCard
-        title="Leads This Month"
-        value={data?.leads?.this_month || 0}
-        description={`${data?.leads?.conversion_rate || 0}% conversion rate`}
-        icon={<Target className="h-4 w-4" />}
-        trend={15}
-      />
-      <MetricCard
-        title="Revenue"
-        value={`₹${(data?.revenue?.this_month || 0).toLocaleString()}`}
-        description={`${data?.revenue?.growth_rate || 0}% growth`}
-        icon={<DollarSign className="h-4 w-4" />}
-        trend={data?.revenue?.growth_rate || 0}
-      />
-    </div>
 
-    <div className="grid gap-4 lg:grid-cols-2">
-      <Card>
-        <CardHeader>
-          <CardTitle>Project Status Distribution</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {data?.projects?.by_status?.length > 0 ? (
-              data.projects.by_status.map((item: any) => (
-                <div key={item.status} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline">{item.status}</Badge>
-                  </div>
-                  <span className="font-medium">{item.count}</span>
-                </div>
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground">No project data available</p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Lead Sources</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {data?.leads?.by_source?.length > 0 ? (
-              data.leads.by_source.map((item: any) => (
-                <div key={item.source} className="flex items-center justify-between">
-                  <span className="text-sm">{item.source}</span>
-                  <Badge>{item.count}</Badge>
-                </div>
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground">No lead source data available</p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  </div>
-);
 
 const DesignerDashboard: React.FC<{ data: any }> = ({ data }) => (
   <div className="space-y-6">

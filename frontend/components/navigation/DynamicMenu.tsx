@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import backend from '~backend/client';
-import type { MenuItem } from '~backend/menu/menu_service';
+import apiClient, { type Menu } from '@/lib/api-client';
 import {
   ChevronDown,
   ChevronRight,
@@ -41,6 +40,9 @@ const iconMap: Record<string, React.ComponentType<any>> = {
   ClipboardCheck,
   PieChart
 };
+
+// Use Menu type from api-client as MenuItem
+type MenuItem = Menu;
 
 interface DynamicMenuProps {
   className?: string;
@@ -141,7 +143,7 @@ export const DynamicMenu: React.FC<DynamicMenuProps> = ({
   const loadMenus = async () => {
     try {
       setLoading(true);
-      const response = await backend.menu.getUserMenus();
+      const response = await apiClient.getUserMenus();
       setMenus(response.menus);
     } catch (err: any) {
       console.error('Failed to load menus:', err);

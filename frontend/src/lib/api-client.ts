@@ -32,8 +32,10 @@ export interface User {
 }
 
 export interface Menu {
+  id?: number;
   name: string;
-  displayName: string;
+  displayName?: string;
+  display_name?: string;
   icon?: string;
   path?: string;
   children?: Menu[];
@@ -512,6 +514,11 @@ class ApiClient {
 
   async deleteUser(id: number): Promise<{ message: string }> {
     return this.request('DELETE', `/users/${id}`);
+  }
+
+  // ==================== MENU METHODS ====================
+  async getUserMenus(): Promise<{ menus: Menu[] }> {
+    return this.request('GET', '/menus/user');
   }
 
   // ==================== PROJECT METHODS ====================

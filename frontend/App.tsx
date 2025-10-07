@@ -23,12 +23,17 @@ import ProjectDetailsPage from './pages/projects/ProjectDetailsPage';
 import AnalyticsPage from './pages/analytics/AnalyticsPage';
 import MaterialsPage from './pages/materials/MaterialsPage';
 import FinancePage from './pages/finance/FinancePage';
+import FinancialManagementPage from './pages/finance/FinancialManagementPage';
+import PartnerApprovalsPage from './pages/approvals/PartnerApprovalsPage';
 import SettingsPage from './pages/settings/SettingsPage';
 import TestimonialsPage from './pages/testimonials/TestimonialsPage';
 import VendorsPage from './pages/vendors/VendorsPage';
 import EmployeesPage from './pages/admin/EmployeesPage';
 import ComplaintsPage from './pages/support/ComplaintsPage';
-import SystemHealthPage from './pages/admin/SystemHealthPage';
+import SystemHealthPage from './pages/system/SystemHealthPage';
+import SystemSettingsPage from './pages/system/SystemSettingsPage';
+import AuditLogsPage from './pages/system/AuditLogsPage';
+import RolesPage from './pages/system/RolesPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -140,6 +145,27 @@ function AppInner() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/finance/management"
+            element={
+              <ProtectedRoute permissions={['finance.manage']}>
+                <DashboardLayout>
+                  <FinancialManagementPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/approvals/partners"
+            element={
+              <ProtectedRoute permissions={['approvals.manage']}>
+                <DashboardLayout>
+                  <PartnerApprovalsPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
 
           <Route
             path="/settings"
@@ -197,11 +223,44 @@ function AppInner() {
           />
 
           <Route
-            path="/system-health"
+            path="/system/health"
             element={
-              <ProtectedRoute permissions={['system.admin']}>
+              <ProtectedRoute permissions={['system.configure']}>
                 <DashboardLayout>
                   <SystemHealthPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/system/settings"
+            element={
+              <ProtectedRoute permissions={['system.configure']}>
+                <DashboardLayout>
+                  <SystemSettingsPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/system/audit-logs"
+            element={
+              <ProtectedRoute permissions={['system.configure']}>
+                <DashboardLayout>
+                  <AuditLogsPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/system/roles"
+            element={
+              <ProtectedRoute permissions={['system.configure']}>
+                <DashboardLayout>
+                  <RolesPage />
                 </DashboardLayout>
               </ProtectedRoute>
             }

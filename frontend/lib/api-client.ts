@@ -11,6 +11,18 @@ interface ApiResponse<T = any> {
   message?: string;
 }
 
+// Custom error class that includes HTTP status code
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public statusText: string
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 // Type definitions for entities
 export interface User {
   id: number;
@@ -112,16 +124,21 @@ class ApiClient {
 
     try {
       const response = await fetch(url, config);
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+        const errorMessage = errorData.error || `HTTP ${response.status}: ${response.statusText}`;
+        throw new ApiError(errorMessage, response.status, response.statusText);
       }
 
       const data = await response.json();
       return data;
     } catch (error) {
       console.error(`API Error [${endpoint}]:`, error);
+      // Re-throw ApiError as-is, wrap other errors
+      if (error instanceof ApiError) {
+        throw error;
+      }
       throw error;
     }
   }
@@ -149,6 +166,32 @@ class ApiClient {
 
   async logout() {
     this.setToken(null);
+  }
+
+  // Generic HTTP methods for flexibility
+  async get(path: string, params?: any) {
+    const query = params ? `?${new URLSearchParams(params)}` : '';
+    return this.request(`${path}${query}`);
+  }
+
+  async post(path: string, data?: any) {
+    return this.request(path, {
+      method: 'POST',
+      body: data ? JSON.stringify(data) : undefined,
+    });
+  }
+
+  async put(path: string, data?: any) {
+    return this.request(path, {
+      method: 'PUT',
+      body: data ? JSON.stringify(data) : undefined,
+    });
+  }
+
+  async delete(path: string) {
+    return this.request(path, {
+      method: 'DELETE',
+    });
   }
 
   // Users
@@ -347,4 +390,5 @@ class ApiClient {
 
 // Create and export a singleton instance
 const apiClient = new ApiClient();
+export { apiClient };
 export default apiClient;

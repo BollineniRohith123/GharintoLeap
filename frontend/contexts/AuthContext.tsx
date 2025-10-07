@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import apiClient from '../lib/api-client';
+import apiClient, { ApiError } from '../lib/api-client';
 
 interface User {
   id: number;
@@ -52,14 +52,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryFn: () => apiClient.getProfile(),
     enabled: !!token,
     staleTime: 1000 * 60 * 10, // 10 minutes
+    retry: false, // Don't retry on error - just fail immediately
+    refetchOnWindowFocus: false, // Don't refetch when window regains focus
   });
 
   useEffect(() => {
     if (profile) {
       setUser(profile);
     } else if (error && token) {
-      // Token is invalid, clear it
-      logout();
+      // Only logout on 401 Unauthorized errors (invalid/expired token)
+      // Don't logout on network errors or other temporary issues
+      if (error instanceof ApiError && error.status === 401) {
+        console.log('Token is invalid or expired, logging out');
+        logout();
+      } else {
+        console.warn('Profile fetch error (not logging out):', error);
+      }
     }
   }, [profile, error, token]);
 
@@ -80,6 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    localStorage.removeItem('auth_token');
     apiClient.logout();
     setToken(null);
     setUser(null);
