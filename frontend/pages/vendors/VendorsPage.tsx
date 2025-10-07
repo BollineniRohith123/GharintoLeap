@@ -69,8 +69,8 @@ export default function VendorsPage() {
     }
   };
 
-  const formatRating = (rating: number) => {
-    return rating.toFixed(1);
+  const formatRating = (rating: number | null | undefined) => {
+    return (rating ?? 0).toFixed(1);
   };
 
   if (error) {
@@ -146,8 +146,8 @@ export default function VendorsPage() {
               <div>
                 <p className="text-gray-400 text-sm">Avg Rating</p>
                 <p className="text-2xl font-bold text-white">
-                  {vendors.length > 0 
-                    ? (vendors.reduce((sum, v) => sum + v.rating, 0) / vendors.length).toFixed(1)
+                  {vendors.length > 0
+                    ? (vendors.reduce((sum, v) => sum + (v.rating ?? 0), 0) / vendors.length).toFixed(1)
                     : '0.0'
                   }
                 </p>
@@ -163,7 +163,7 @@ export default function VendorsPage() {
               <div>
                 <p className="text-gray-400 text-sm">Total Materials</p>
                 <p className="text-2xl font-bold text-white">
-                  {vendors.reduce((sum, v) => sum + v.materialCount, 0)}
+                  {vendors.reduce((sum, v) => sum + (v.materialCount ?? 0), 0)}
                 </p>
               </div>
               <Package className="h-8 w-8 text-purple-500" />
@@ -303,7 +303,7 @@ export default function VendorsPage() {
                         <Star
                           key={i}
                           className={`h-4 w-4 ${
-                            i < Math.floor(vendor.rating)
+                            i < Math.floor(vendor.rating ?? 0)
                               ? 'text-yellow-400 fill-current'
                               : 'text-gray-600'
                           }`}
@@ -311,33 +311,39 @@ export default function VendorsPage() {
                       ))}
                     </div>
                     <span className="text-gray-300 text-sm">{formatRating(vendor.rating)}</span>
-                    <span className="text-gray-500 text-xs">({vendor.totalOrders} orders)</span>
+                    <span className="text-gray-500 text-xs">({vendor.totalOrders ?? 0} orders)</span>
                   </div>
 
                   {/* Contact Info */}
                   <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-sm text-gray-300">
-                      <Phone className="h-3 w-3" />
-                      <span>{vendor.contact.phone}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-gray-300">
-                      <Mail className="h-3 w-3" />
-                      <span className="truncate">{vendor.contact.email}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-gray-300">
-                      <MapPin className="h-3 w-3" />
-                      <span>{vendor.city}, {vendor.state}</span>
-                    </div>
+                    {vendor.contact?.phone && (
+                      <div className="flex items-center gap-2 text-sm text-gray-300">
+                        <Phone className="h-3 w-3" />
+                        <span>{vendor.contact.phone}</span>
+                      </div>
+                    )}
+                    {vendor.contact?.email && (
+                      <div className="flex items-center gap-2 text-sm text-gray-300">
+                        <Mail className="h-3 w-3" />
+                        <span className="truncate">{vendor.contact.email}</span>
+                      </div>
+                    )}
+                    {(vendor.city || vendor.state) && (
+                      <div className="flex items-center gap-2 text-sm text-gray-300">
+                        <MapPin className="h-3 w-3" />
+                        <span>{[vendor.city, vendor.state].filter(Boolean).join(', ')}</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Stats */}
                   <div className="grid grid-cols-2 gap-4 pt-3 border-t border-gray-700">
                     <div className="text-center">
-                      <p className="text-lg font-semibold text-white">{vendor.materialCount}</p>
+                      <p className="text-lg font-semibold text-white">{vendor.materialCount ?? 0}</p>
                       <p className="text-xs text-gray-400">Materials</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-lg font-semibold text-white">{vendor.totalOrders}</p>
+                      <p className="text-lg font-semibold text-white">{vendor.totalOrders ?? 0}</p>
                       <p className="text-xs text-gray-400">Orders</p>
                     </div>
                   </div>
@@ -374,7 +380,9 @@ export default function VendorsPage() {
 
                   {/* Footer */}
                   <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t border-gray-700">
-                    <span>Since {new Date(vendor.createdAt).getFullYear()}</span>
+                    <span>
+                      Since {vendor.createdAt ? new Date(vendor.createdAt).getFullYear() : 'N/A'}
+                    </span>
                     {vendor.isVerified ? (
                       <div className="flex items-center gap-1 text-green-400">
                         <Award className="h-3 w-3" />

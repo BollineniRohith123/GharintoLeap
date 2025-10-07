@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Search, Plus, Package, AlertTriangle, CheckCircle } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
-import backend from '~backend/client';
+import apiClient from '../../src/lib/api-client';
 
 export default function MaterialsPage() {
   const [search, setSearch] = useState('');
@@ -16,18 +16,21 @@ export default function MaterialsPage() {
   const { toast } = useToast();
 
   const { data: materialsData, isLoading, error } = useQuery({
-    queryKey: ['materials'],
-    queryFn: () => backend.materials.listMaterials(),
+    queryKey: ['materials', { search, category: categoryFilter }],
+    queryFn: () => apiClient.getMaterials({ search, category: categoryFilter }),
   });
 
   const { data: stats } = useQuery({
     queryKey: ['material-stats'],
-    queryFn: () => backend.materials.getMaterialStats(),
+    queryFn: async () => {
+      const response = await apiClient.get('/materials/stats');
+      return response;
+    },
   });
 
   const { data: categories } = useQuery({
     queryKey: ['material-categories'],
-    queryFn: () => backend.materials.getCategories(),
+    queryFn: () => apiClient.getMaterialCategories(),
   });
 
   const getStockStatus = (material: any) => {
@@ -150,12 +153,12 @@ export default function MaterialsPage() {
                 className="pl-10"
               />
             </div>
-            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+            <Select value={categoryFilter || "all"} onValueChange={(value) => setCategoryFilter(value === "all" ? "" : value)}>
               <SelectTrigger>
                 <SelectValue placeholder="Filter by category" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Categories</SelectItem>
+                <SelectItem value="all">All Categories</SelectItem>
                 {categories?.categories.map((category) => (
                   <SelectItem key={category} value={category}>
                     {category}

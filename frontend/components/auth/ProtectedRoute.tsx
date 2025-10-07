@@ -12,7 +12,8 @@ interface ProtectedRouteProps {
 export function ProtectedRoute({ children, permissions = [], roles = [] }: ProtectedRouteProps) {
   const { user, token, isLoading, hasPermission, hasRole } = useAuth();
 
-  if (isLoading) {
+  // Show loading while fetching user profile
+  if (isLoading || (token && !user)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
@@ -23,7 +24,13 @@ export function ProtectedRoute({ children, permissions = [], roles = [] }: Prote
     );
   }
 
-  if (!token || !user) {
+  // Redirect to login if no token
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // Redirect to login if token exists but user fetch failed
+  if (!user) {
     return <Navigate to="/login" replace />;
   }
 

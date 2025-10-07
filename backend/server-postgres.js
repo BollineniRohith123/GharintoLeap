@@ -1558,6 +1558,122 @@ app.get('/projects', authenticateToken, async (req, res) => {
   }
 });
 
+// ==================== COMMUNICATIONS ENDPOINTS ====================
+
+// Get user conversations
+app.get('/communications/conversations', authenticateToken, async (req, res) => {
+  try {
+    // Return mock conversations for now
+    const conversations = [
+      {
+        id: 1,
+        title: 'Project Discussion - Modern Villa',
+        last_message: 'The materials have been ordered',
+        last_message_at: new Date(Date.now() - 3600000).toISOString(),
+        unread_count: 2,
+        participants: 3
+      },
+      {
+        id: 2,
+        title: 'Vendor Communication - Premium Furniture',
+        last_message: 'Delivery scheduled for next week',
+        last_message_at: new Date(Date.now() - 7200000).toISOString(),
+        unread_count: 0,
+        participants: 2
+      },
+      {
+        id: 3,
+        title: 'Team Chat - Design Review',
+        last_message: 'Client approved the final design',
+        last_message_at: new Date(Date.now() - 86400000).toISOString(),
+        unread_count: 1,
+        participants: 5
+      }
+    ];
+
+    res.json({
+      conversations,
+      total: conversations.length
+    });
+  } catch (error) {
+    console.error('Conversations fetch error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get messages for a conversation
+app.get('/communications/conversations/:id/messages', authenticateToken, async (req, res) => {
+  try {
+    const conversationId = parseInt(req.params.id);
+
+    // Return mock messages for now
+    const messages = [
+      {
+        id: 1,
+        conversation_id: conversationId,
+        sender_id: 1,
+        sender_name: 'John Designer',
+        content: 'Hi team, I\'ve completed the initial design mockups.',
+        created_at: new Date(Date.now() - 7200000).toISOString(),
+        is_read: true
+      },
+      {
+        id: 2,
+        conversation_id: conversationId,
+        sender_id: 2,
+        sender_name: 'Sarah Manager',
+        content: 'Great work! Can you share them in the project folder?',
+        created_at: new Date(Date.now() - 5400000).toISOString(),
+        is_read: true
+      },
+      {
+        id: 3,
+        conversation_id: conversationId,
+        sender_id: 1,
+        sender_name: 'John Designer',
+        content: 'Done! Check the latest folder.',
+        created_at: new Date(Date.now() - 3600000).toISOString(),
+        is_read: false
+      }
+    ];
+
+    res.json({
+      messages,
+      total: messages.length
+    });
+  } catch (error) {
+    console.error('Messages fetch error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Send a message
+app.post('/communications/messages', authenticateToken, async (req, res) => {
+  try {
+    const { conversation_id, content } = req.body;
+
+    if (!conversation_id || !content) {
+      return res.status(400).json({ error: 'Conversation ID and content are required' });
+    }
+
+    // Create mock message
+    const message = {
+      id: Math.floor(Math.random() * 1000000),
+      conversation_id,
+      sender_id: req.user.id,
+      sender_name: `${req.user.firstName} ${req.user.lastName}`,
+      content,
+      created_at: new Date().toISOString(),
+      is_read: false
+    };
+
+    res.status(201).json(message);
+  } catch (error) {
+    console.error('Send message error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ==================== NOTIFICATIONS ENDPOINTS ====================
 
 // Get user notifications
@@ -2543,6 +2659,226 @@ app.delete('/system/roles/:roleId', authenticateToken, async (req, res) => {
 
   } catch (error) {
     console.error('Delete role error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ==================== FINANCE/WALLET ENDPOINTS ====================
+
+// Get current user's wallet
+app.get('/wallet', authenticateToken, async (req, res) => {
+  try {
+    const walletQuery = `
+      SELECT * FROM wallets WHERE user_id = $1
+    `;
+
+    const result = await pool.query(walletQuery, [req.user.id]);
+
+    if (result.rows.length === 0) {
+      // Create wallet if it doesn't exist
+      const createResult = await pool.query(
+        'INSERT INTO wallets (user_id, balance, total_earned, total_spent) VALUES ($1, 0, 0, 0) RETURNING *',
+        [req.user.id]
+      );
+      return res.json(createResult.rows[0]);
+    }
+
+    res.json(result.rows[0]);
+
+  } catch (error) {
+    console.error('Get wallet error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get quotations
+app.get('/quotations', authenticateToken, async (req, res) => {
+  try {
+    const { page = 1, limit = 20, status } = req.query;
+    const offset = (page - 1) * limit;
+
+    let whereClause = 'WHERE 1=1';
+    const queryParams = [];
+    let paramIndex = 1;
+
+    // For now, return empty array as quotations table may not exist
+    // This prevents the page from crashing
+    res.json({
+      quotations: [],
+      total: 0,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      totalPages: 0
+    });
+
+  } catch (error) {
+    console.error('Get quotations error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get invoices
+app.get('/invoices', authenticateToken, async (req, res) => {
+  try {
+    const { page = 1, limit = 20, status } = req.query;
+    const offset = (page - 1) * limit;
+
+    let whereClause = 'WHERE 1=1';
+    const queryParams = [];
+    let paramIndex = 1;
+
+    // For now, return empty array as invoices table may not exist
+    // This prevents the page from crashing
+    res.json({
+      invoices: [],
+      total: 0,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      totalPages: 0
+    });
+
+  } catch (error) {
+    console.error('Get invoices error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ==================== MATERIALS ENDPOINTS ====================
+
+// Get all materials
+app.get('/materials', authenticateToken, async (req, res) => {
+  try {
+    const { page = 1, limit = 20, category, vendorId, search } = req.query;
+    const offset = (page - 1) * limit;
+
+    let whereClause = 'WHERE m.is_active = true';
+    const queryParams = [];
+    let paramIndex = 1;
+
+    if (category && category !== 'undefined') {
+      whereClause += ` AND m.category = $${paramIndex}`;
+      queryParams.push(category);
+      paramIndex++;
+    }
+
+    if (vendorId && vendorId !== 'undefined') {
+      whereClause += ` AND m.vendor_id = $${paramIndex}`;
+      queryParams.push(vendorId);
+      paramIndex++;
+    }
+
+    if (search && search !== 'undefined') {
+      whereClause += ` AND (m.name ILIKE $${paramIndex} OR m.description ILIKE $${paramIndex})`;
+      queryParams.push(`%${search}%`);
+      paramIndex++;
+    }
+
+    const materialsQuery = `
+      SELECT
+        m.*,
+        v.company_name as vendor_name,
+        v.rating as vendor_rating,
+        v.city as vendor_city,
+        v.is_verified as vendor_verified
+      FROM materials m
+      LEFT JOIN vendors v ON m.vendor_id = v.id
+      ${whereClause}
+      ORDER BY m.created_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM materials m
+      ${whereClause}
+    `;
+
+    queryParams.push(limit, offset);
+
+    const [materialsResult, countResult] = await Promise.all([
+      pool.query(materialsQuery, queryParams),
+      pool.query(countQuery, queryParams.slice(0, -2))
+    ]);
+
+    res.json({
+      materials: materialsResult.rows,
+      total: parseInt(countResult.rows[0].total),
+      page: parseInt(page),
+      limit: parseInt(limit),
+      totalPages: Math.ceil(countResult.rows[0].total / limit)
+    });
+
+  } catch (error) {
+    console.error('Materials fetch error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get material statistics
+app.get('/materials/stats', authenticateToken, async (req, res) => {
+  try {
+    const statsQuery = `
+      SELECT
+        COUNT(*) as total_materials,
+        COUNT(*) FILTER (WHERE is_active = true) as active_materials,
+        COUNT(DISTINCT category) as categories,
+        SUM(price * stock_quantity) as total_value,
+        COUNT(*) FILTER (WHERE stock_quantity < 10) as low_stock_count,
+        COUNT(*) FILTER (WHERE stock_quantity = 0) as out_of_stock_count
+      FROM materials
+    `;
+
+    const categoryStatsQuery = `
+      SELECT
+        category,
+        COUNT(*) as count,
+        SUM(stock_quantity) as total_stock
+      FROM materials
+      WHERE is_active = true
+      GROUP BY category
+      ORDER BY count DESC
+    `;
+
+    const [statsResult, categoryResult] = await Promise.all([
+      pool.query(statsQuery),
+      pool.query(categoryStatsQuery)
+    ]);
+
+    const stats = statsResult.rows[0];
+
+    res.json({
+      total_materials: parseInt(stats.total_materials || 0),
+      active_materials: parseInt(stats.active_materials || 0),
+      categories: parseInt(stats.categories || 0),
+      total_value: parseFloat(stats.total_value || 0),
+      low_stock_count: parseInt(stats.low_stock_count || 0),
+      out_of_stock_count: parseInt(stats.out_of_stock_count || 0),
+      by_category: categoryResult.rows
+    });
+
+  } catch (error) {
+    console.error('Material stats error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get material categories
+app.get('/materials/categories', authenticateToken, async (req, res) => {
+  try {
+    const categoriesQuery = `
+      SELECT DISTINCT category
+      FROM materials
+      WHERE is_active = true AND category IS NOT NULL
+      ORDER BY category
+    `;
+
+    const result = await pool.query(categoriesQuery);
+    const categories = result.rows.map(row => row.category);
+
+    res.json({ categories });
+
+  } catch (error) {
+    console.error('Material categories error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

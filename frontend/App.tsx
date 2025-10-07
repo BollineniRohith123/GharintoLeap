@@ -28,6 +28,7 @@ import PartnerApprovalsPage from './pages/approvals/PartnerApprovalsPage';
 import SettingsPage from './pages/settings/SettingsPage';
 import TestimonialsPage from './pages/testimonials/TestimonialsPage';
 import VendorsPage from './pages/vendors/VendorsPage';
+import CommunicationsPage from './pages/communications/CommunicationsPage';
 import EmployeesPage from './pages/admin/EmployeesPage';
 import ComplaintsPage from './pages/support/ComplaintsPage';
 import SystemHealthPage from './pages/system/SystemHealthPage';
@@ -195,6 +196,17 @@ function AppInner() {
               <ProtectedRoute>
                 <DashboardLayout>
                   <VendorsPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/communications"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <CommunicationsPage />
                 </DashboardLayout>
               </ProtectedRoute>
             }
