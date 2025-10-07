@@ -10,12 +10,15 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, permissions = [], roles = [] }: ProtectedRouteProps) {
-  const { user, token, isLoading } = useAuth();
+  const { user, token, isLoading, hasPermission, hasRole } = useAuth();
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin" />
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+          <p className="mt-2 text-sm text-muted-foreground">Loading...</p>
+        </div>
       </div>
     );
   }
@@ -24,13 +27,15 @@ export function ProtectedRoute({ children, permissions = [], roles = [] }: Prote
     return <Navigate to="/login" replace />;
   }
 
-  // Check role permissions
-  if (roles.length > 0 && !roles.some(role => user.roles.includes(role))) {
+  // Check role requirements
+  if (roles.length > 0 && !roles.some(role => hasRole(role))) {
     return <Navigate to="/dashboard" replace />;
   }
 
-  // For now, skip permission checks since we don't have permissions in user object
-  // In a real implementation, you would check permissions here
+  // Check permission requirements
+  if (permissions.length > 0 && !permissions.some(permission => hasPermission(permission))) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   return <>{children}</>;
 }

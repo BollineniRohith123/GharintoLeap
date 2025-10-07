@@ -30,9 +30,9 @@ const { Pool } = pg;
 const config = {
   host: 'localhost',
   port: 5432,
-  database: 'gharinto_db',
+  database: 'gharinto_dev',
   user: 'postgres',
-  password: 'postgres',
+  password: '1234',
   ssl: false,
   connectionTimeoutMillis: 5000,
   idleTimeoutMillis: 30000,
