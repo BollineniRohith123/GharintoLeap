@@ -19,7 +19,11 @@ import {
   Star,
   Truck,
   ClipboardCheck,
-  PieChart
+  PieChart,
+  MapPin,
+  Menu as MenuIcon,
+  GitBranch,
+  TrendingUp
 } from 'lucide-react';
 
 const iconMap: Record<string, React.ComponentType<any>> = {
@@ -38,7 +42,11 @@ const iconMap: Record<string, React.ComponentType<any>> = {
   Star,
   Truck,
   ClipboardCheck,
-  PieChart
+  PieChart,
+  MapPin,
+  Menu: MenuIcon,
+  GitBranch,
+  TrendingUp
 };
 
 // Use Menu type from api-client as MenuItem

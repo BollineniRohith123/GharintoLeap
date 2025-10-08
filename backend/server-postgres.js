@@ -2743,6 +2743,1399 @@ app.get('/invoices', authenticateToken, async (req, res) => {
   }
 });
 
+// ==================== CITY MANAGEMENT ENDPOINTS (CRITICAL FEATURE 1) ====================
+
+// Get all cities
+app.get('/cities', authenticateToken, async (req, res) => {
+  try {
+    const { is_active, is_operational, state } = req.query;
+
+    let whereClause = 'WHERE 1=1';
+    const queryParams = [];
+    let paramIndex = 1;
+
+    if (is_active !== undefined) {
+      whereClause += ` AND is_active = $${paramIndex}`;
+      queryParams.push(is_active === 'true');
+      paramIndex++;
+    }
+
+    if (is_operational !== undefined) {
+      whereClause += ` AND is_operational = $${paramIndex}`;
+      queryParams.push(is_operational === 'true');
+      paramIndex++;
+    }
+
+    if (state) {
+      whereClause += ` AND state = $${paramIndex}`;
+      queryParams.push(state);
+      paramIndex++;
+    }
+
+    const citiesQuery = `
+      SELECT c.*, cs.*
+      FROM cities c
+      LEFT JOIN city_settings cs ON c.id = cs.city_id
+      ${whereClause}
+      ORDER BY c.display_name
+    `;
+
+    const result = await pool.query(citiesQuery, queryParams);
+
+    res.json({
+      cities: result.rows,
+      total: result.rows.length
+    });
+
+  } catch (error) {
+    console.error('Get cities error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get single city by ID
+app.get('/cities/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const cityQuery = `
+      SELECT c.*, cs.*
+      FROM cities c
+      LEFT JOIN city_settings cs ON c.id = cs.city_id
+      WHERE c.id = $1
+    `;
+
+    const result = await pool.query(cityQuery, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'City not found' });
+    }
+
+    res.json(result.rows[0]);
+
+  } catch (error) {
+    console.error('Get city error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create new city (SuperAdmin only)
+app.post('/cities', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('super_admin')) {
+      return res.status(403).json({ error: 'Unauthorized. SuperAdmin access required.' });
+    }
+
+    const {
+      name,
+      display_name,
+      state,
+      state_code,
+      country = 'India',
+      timezone = 'Asia/Kolkata',
+      is_active = true,
+      is_operational = false,
+      launch_date,
+      settings = {}
+    } = req.body;
+
+    if (!name || !display_name || !state) {
+      return res.status(400).json({ error: 'Name, display_name, and state are required' });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Insert city
+      const cityResult = await client.query(
+        `INSERT INTO cities (name, display_name, state, state_code, country, timezone, is_active, is_operational, launch_date)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING *`,
+        [name.toLowerCase(), display_name, state, state_code, country, timezone, is_active, is_operational, launch_date]
+      );
+
+      const city = cityResult.rows[0];
+
+      // Insert default city settings
+      const settingsResult = await client.query(
+        `INSERT INTO city_settings (
+          city_id, currency, currency_symbol, date_format, time_format, language,
+          gst_rate, cgst_rate, sgst_rate, igst_rate, tds_rate, service_charge_rate,
+          min_project_value, max_project_value, default_lead_assignment_mode
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        RETURNING *`,
+        [
+          city.id,
+          settings.currency || 'INR',
+          settings.currency_symbol || '₹',
+          settings.date_format || 'DD/MM/YYYY',
+          settings.time_format || '12h',
+          settings.language || 'en',
+          settings.gst_rate || 18.00,
+          settings.cgst_rate || 9.00,
+          settings.sgst_rate || 9.00,
+          settings.igst_rate || 18.00,
+          settings.tds_rate || 1.00,
+          settings.service_charge_rate || 0.00,
+          settings.min_project_value || 50000,
+          settings.max_project_value || 10000000,
+          settings.default_lead_assignment_mode || 'auto'
+        ]
+      );
+
+      await client.query('COMMIT');
+
+      res.status(201).json({
+        success: true,
+        message: 'City created successfully',
+        city: { ...city, settings: settingsResult.rows[0] }
+      });
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+  } catch (error) {
+    console.error('Create city error:', error);
+    if (error.code === '23505') {
+      return res.status(400).json({ error: 'City with this name already exists' });
+    }
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update city (SuperAdmin only)
+app.put('/cities/:id', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('super_admin')) {
+      return res.status(403).json({ error: 'Unauthorized. SuperAdmin access required.' });
+    }
+
+    const { id } = req.params;
+    const {
+      display_name,
+      state,
+      state_code,
+      country,
+      timezone,
+      is_active,
+      is_operational,
+      launch_date
+    } = req.body;
+
+    const updateFields = [];
+    const queryParams = [];
+    let paramIndex = 1;
+
+    if (display_name !== undefined) {
+      updateFields.push(`display_name = $${paramIndex}`);
+      queryParams.push(display_name);
+      paramIndex++;
+    }
+    if (state !== undefined) {
+      updateFields.push(`state = $${paramIndex}`);
+      queryParams.push(state);
+      paramIndex++;
+    }
+    if (state_code !== undefined) {
+      updateFields.push(`state_code = $${paramIndex}`);
+      queryParams.push(state_code);
+      paramIndex++;
+    }
+    if (country !== undefined) {
+      updateFields.push(`country = $${paramIndex}`);
+      queryParams.push(country);
+      paramIndex++;
+    }
+    if (timezone !== undefined) {
+      updateFields.push(`timezone = $${paramIndex}`);
+      queryParams.push(timezone);
+      paramIndex++;
+    }
+    if (is_active !== undefined) {
+      updateFields.push(`is_active = $${paramIndex}`);
+      queryParams.push(is_active);
+      paramIndex++;
+    }
+    if (is_operational !== undefined) {
+      updateFields.push(`is_operational = $${paramIndex}`);
+      queryParams.push(is_operational);
+      paramIndex++;
+    }
+    if (launch_date !== undefined) {
+      updateFields.push(`launch_date = $${paramIndex}`);
+      queryParams.push(launch_date);
+      paramIndex++;
+    }
+
+    if (updateFields.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    updateFields.push(`updated_at = NOW()`);
+    queryParams.push(id);
+
+    const updateQuery = `
+      UPDATE cities
+      SET ${updateFields.join(', ')}
+      WHERE id = $${paramIndex}
+      RETURNING *
+    `;
+
+    const result = await pool.query(updateQuery, queryParams);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'City not found' });
+    }
+
+    res.json({
+      success: true,
+      message: 'City updated successfully',
+      city: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error('Update city error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete city (SuperAdmin only)
+app.delete('/cities/:id', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('super_admin')) {
+      return res.status(403).json({ error: 'Unauthorized. SuperAdmin access required.' });
+    }
+
+    const { id } = req.params;
+
+    const result = await pool.query(
+      'DELETE FROM cities WHERE id = $1 RETURNING *',
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'City not found' });
+    }
+
+    res.json({
+      success: true,
+      message: 'City deleted successfully',
+      city: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error('Delete city error:', error);
+    if (error.code === '23503') {
+      return res.status(400).json({ error: 'Cannot delete city. It is referenced by other records.' });
+    }
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update city settings (SuperAdmin only)
+app.put('/cities/:id/settings', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('super_admin')) {
+      return res.status(403).json({ error: 'Unauthorized. SuperAdmin access required.' });
+    }
+
+    const { id } = req.params;
+    const settings = req.body;
+
+    const updateFields = [];
+    const queryParams = [];
+    let paramIndex = 1;
+
+    const allowedFields = [
+      'currency', 'currency_symbol', 'date_format', 'time_format', 'language',
+      'gst_rate', 'cgst_rate', 'sgst_rate', 'igst_rate', 'tds_rate', 'service_charge_rate',
+      'min_project_value', 'max_project_value', 'default_lead_assignment_mode'
+    ];
+
+    allowedFields.forEach(field => {
+      if (settings[field] !== undefined) {
+        updateFields.push(`${field} = $${paramIndex}`);
+        queryParams.push(settings[field]);
+        paramIndex++;
+      }
+    });
+
+    if (updateFields.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    updateFields.push(`updated_at = NOW()`);
+    queryParams.push(id);
+
+    const updateQuery = `
+      UPDATE city_settings
+      SET ${updateFields.join(', ')}
+      WHERE city_id = $${paramIndex}
+      RETURNING *
+    `;
+
+    const result = await pool.query(updateQuery, queryParams);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'City settings not found' });
+    }
+
+    res.json({
+      success: true,
+      message: 'City settings updated successfully',
+      settings: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error('Update city settings error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ==================== COMMISSION CONFIGURATION ENDPOINTS (CRITICAL FEATURE 2) ====================
+
+// Get all commission configurations
+app.get('/commission-config', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('super_admin')) {
+      return res.status(403).json({ error: 'Unauthorized. SuperAdmin access required.' });
+    }
+
+    const { role_name, tier, is_active, city_id } = req.query;
+
+    let whereClause = 'WHERE 1=1';
+    const queryParams = [];
+    let paramIndex = 1;
+
+    if (role_name) {
+      whereClause += ` AND cc.role_name = $${paramIndex}`;
+      queryParams.push(role_name);
+      paramIndex++;
+    }
+
+    if (tier) {
+      whereClause += ` AND cc.tier = $${paramIndex}`;
+      queryParams.push(tier);
+      paramIndex++;
+    }
+
+    if (is_active !== undefined) {
+      whereClause += ` AND cc.is_active = $${paramIndex}`;
+      queryParams.push(is_active === 'true');
+      paramIndex++;
+    }
+
+    if (city_id) {
+      whereClause += ` AND (cc.city_id = $${paramIndex} OR cc.city_id IS NULL)`;
+      queryParams.push(city_id);
+      paramIndex++;
+    }
+
+    const configQuery = `
+      SELECT cc.*, c.display_name as city_name,
+             u.first_name || ' ' || u.last_name as created_by_name
+      FROM commission_config cc
+      LEFT JOIN cities c ON cc.city_id = c.id
+      LEFT JOIN users u ON cc.created_by = u.id
+      ${whereClause}
+      ORDER BY cc.role_name, cc.tier, cc.effective_from DESC
+    `;
+
+    const result = await pool.query(configQuery, queryParams);
+
+    res.json({
+      configs: result.rows,
+      total: result.rows.length
+    });
+
+  } catch (error) {
+    console.error('Get commission config error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get commission history
+app.get('/commission-config/history', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('super_admin')) {
+      return res.status(403).json({ error: 'Unauthorized. SuperAdmin access required.' });
+    }
+
+    const { commission_config_id, limit = 50 } = req.query;
+
+    let whereClause = 'WHERE 1=1';
+    const queryParams = [];
+    let paramIndex = 1;
+
+    if (commission_config_id) {
+      whereClause += ` AND ch.commission_config_id = $${paramIndex}`;
+      queryParams.push(commission_config_id);
+      paramIndex++;
+    }
+
+    queryParams.push(limit);
+
+    const historyQuery = `
+      SELECT ch.*,
+             u.first_name || ' ' || u.last_name as changed_by_name,
+             cc.name as config_name
+      FROM commission_history ch
+      LEFT JOIN users u ON ch.changed_by = u.id
+      LEFT JOIN commission_config cc ON ch.commission_config_id = cc.id
+      ${whereClause}
+      ORDER BY ch.changed_at DESC
+      LIMIT $${paramIndex}
+    `;
+
+    const result = await pool.query(historyQuery, queryParams);
+
+    res.json({
+      history: result.rows,
+      total: result.rows.length
+    });
+
+  } catch (error) {
+    console.error('Get commission history error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create commission configuration
+app.post('/commission-config', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('super_admin')) {
+      return res.status(403).json({ error: 'Unauthorized. SuperAdmin access required.' });
+    }
+
+    const {
+      name,
+      role_name,
+      tier = 'standard',
+      service_type,
+      city_id,
+      commission_type = 'percentage',
+      commission_value,
+      min_amount = 0,
+      max_amount,
+      is_active = true,
+      effective_from,
+      effective_to
+    } = req.body;
+
+    if (!name || !role_name || commission_value === undefined) {
+      return res.status(400).json({ error: 'Name, role_name, and commission_value are required' });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Insert commission config
+      const configResult = await client.query(
+        `INSERT INTO commission_config (
+          name, role_name, tier, service_type, city_id, commission_type,
+          commission_value, min_amount, max_amount, is_active, effective_from, effective_to, created_by
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        RETURNING *`,
+        [name, role_name, tier, service_type, city_id, commission_type, commission_value,
+         min_amount, max_amount, is_active, effective_from || new Date(), effective_to, req.user.id]
+      );
+
+      const config = configResult.rows[0];
+
+      // Log history
+      await client.query(
+        `INSERT INTO commission_history (commission_config_id, action, new_value, changed_by, reason)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [config.id, 'created', JSON.stringify(config), req.user.id, 'Initial creation']
+      );
+
+      await client.query('COMMIT');
+
+      res.status(201).json({
+        success: true,
+        message: 'Commission configuration created successfully',
+        config
+      });
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+  } catch (error) {
+    console.error('Create commission config error:', error);
+    if (error.code === '23505') {
+      return res.status(400).json({ error: 'Commission configuration with these parameters already exists' });
+    }
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update commission configuration
+app.put('/commission-config/:id', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('super_admin')) {
+      return res.status(403).json({ error: 'Unauthorized. SuperAdmin access required.' });
+    }
+
+    const { id } = req.params;
+    const updates = req.body;
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Get old value
+      const oldResult = await client.query('SELECT * FROM commission_config WHERE id = $1', [id]);
+      if (oldResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Commission configuration not found' });
+      }
+      const oldValue = oldResult.rows[0];
+
+      // Build update query
+      const updateFields = [];
+      const queryParams = [];
+      let paramIndex = 1;
+
+      const allowedFields = [
+        'name', 'commission_type', 'commission_value', 'min_amount', 'max_amount',
+        'is_active', 'effective_from', 'effective_to'
+      ];
+
+      allowedFields.forEach(field => {
+        if (updates[field] !== undefined) {
+          updateFields.push(`${field} = $${paramIndex}`);
+          queryParams.push(updates[field]);
+          paramIndex++;
+        }
+      });
+
+      if (updateFields.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'No fields to update' });
+      }
+
+      updateFields.push(`updated_at = NOW()`);
+      queryParams.push(id);
+
+      const updateQuery = `
+        UPDATE commission_config
+        SET ${updateFields.join(', ')}
+        WHERE id = $${paramIndex}
+        RETURNING *
+      `;
+
+      const result = await client.query(updateQuery, queryParams);
+      const newValue = result.rows[0];
+
+      // Log history
+      await client.query(
+        `INSERT INTO commission_history (commission_config_id, action, old_value, new_value, changed_by, reason)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [id, 'updated', JSON.stringify(oldValue), JSON.stringify(newValue), req.user.id, updates.reason || 'Updated via API']
+      );
+
+      await client.query('COMMIT');
+
+      res.json({
+        success: true,
+        message: 'Commission configuration updated successfully',
+        config: newValue
+      });
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+  } catch (error) {
+    console.error('Update commission config error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete commission configuration
+app.delete('/commission-config/:id', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('super_admin')) {
+      return res.status(403).json({ error: 'Unauthorized. SuperAdmin access required.' });
+    }
+
+    const { id } = req.params;
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Get config before deletion
+      const configResult = await client.query('SELECT * FROM commission_config WHERE id = $1', [id]);
+      if (configResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Commission configuration not found' });
+      }
+      const config = configResult.rows[0];
+
+      // Log history
+      await client.query(
+        `INSERT INTO commission_history (commission_config_id, action, old_value, changed_by, reason)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [id, 'deleted', JSON.stringify(config), req.user.id, 'Deleted via API']
+      );
+
+      // Delete config
+      await client.query('DELETE FROM commission_config WHERE id = $1', [id]);
+
+      await client.query('COMMIT');
+
+      res.json({
+        success: true,
+        message: 'Commission configuration deleted successfully',
+        config
+      });
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+  } catch (error) {
+    console.error('Delete commission config error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Preview commission calculation
+app.post('/commission-config/preview', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('super_admin')) {
+      return res.status(403).json({ error: 'Unauthorized. SuperAdmin access required.' });
+    }
+
+    const { role_name, tier, service_type, city_id, amount } = req.body;
+
+    if (!role_name || !amount) {
+      return res.status(400).json({ error: 'role_name and amount are required' });
+    }
+
+    // Find applicable commission config
+    let whereClause = 'WHERE is_active = true AND role_name = $1';
+    const queryParams = [role_name];
+    let paramIndex = 2;
+
+    if (tier) {
+      whereClause += ` AND tier = $${paramIndex}`;
+      queryParams.push(tier);
+      paramIndex++;
+    }
+
+    if (service_type) {
+      whereClause += ` AND (service_type = $${paramIndex} OR service_type IS NULL)`;
+      queryParams.push(service_type);
+      paramIndex++;
+    }
+
+    if (city_id) {
+      whereClause += ` AND (city_id = $${paramIndex} OR city_id IS NULL)`;
+      queryParams.push(city_id);
+      paramIndex++;
+    }
+
+    whereClause += ` AND (effective_from <= CURRENT_DATE) AND (effective_to IS NULL OR effective_to >= CURRENT_DATE)`;
+
+    const configQuery = `
+      SELECT * FROM commission_config
+      ${whereClause}
+      ORDER BY city_id DESC NULLS LAST, service_type DESC NULLS LAST
+      LIMIT 1
+    `;
+
+    const result = await pool.query(configQuery, queryParams);
+
+    if (result.rows.length === 0) {
+      return res.json({
+        applicable_config: null,
+        commission_amount: 0,
+        net_amount: amount,
+        message: 'No applicable commission configuration found'
+      });
+    }
+
+    const config = result.rows[0];
+    let commissionAmount = 0;
+
+    if (config.commission_type === 'percentage') {
+      commissionAmount = Math.round((amount * config.commission_value) / 100);
+    } else if (config.commission_type === 'fixed') {
+      commissionAmount = config.commission_value;
+    }
+
+    res.json({
+      applicable_config: config,
+      commission_amount: commissionAmount,
+      net_amount: amount - commissionAmount,
+      calculation_details: {
+        base_amount: amount,
+        commission_type: config.commission_type,
+        commission_rate: config.commission_value,
+        commission_amount: commissionAmount
+      }
+    });
+
+  } catch (error) {
+    console.error('Preview commission error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ==================== ASSIGNMENT ALGORITHM CONFIGURATION ENDPOINTS (CRITICAL FEATURE 4) ====================
+
+// Get all assignment rules
+app.get('/assignment-rules', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('super_admin')) {
+      return res.status(403).json({ error: 'Unauthorized. SuperAdmin access required.' });
+    }
+
+    const { rule_type, is_active } = req.query;
+
+    let whereClause = 'WHERE 1=1';
+    const queryParams = [];
+    let paramIndex = 1;
+
+    if (rule_type) {
+      whereClause += ` AND rule_type = $${paramIndex}`;
+      queryParams.push(rule_type);
+      paramIndex++;
+    }
+
+    if (is_active !== undefined) {
+      whereClause += ` AND is_active = $${paramIndex}`;
+      queryParams.push(is_active === 'true');
+      paramIndex++;
+    }
+
+    const rulesQuery = `
+      SELECT ar.*, u.first_name || ' ' || u.last_name as created_by_name
+      FROM assignment_rules ar
+      LEFT JOIN users u ON ar.created_by = u.id
+      ${whereClause}
+      ORDER BY ar.priority ASC, ar.name
+    `;
+
+    const result = await pool.query(rulesQuery, queryParams);
+
+    res.json({
+      rules: result.rows,
+      total: result.rows.length
+    });
+
+  } catch (error) {
+    console.error('Get assignment rules error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get assignment algorithm settings
+app.get('/assignment-config', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('super_admin')) {
+      return res.status(403).json({ error: 'Unauthorized. SuperAdmin access required.' });
+    }
+
+    const { category } = req.query;
+
+    let whereClause = 'WHERE is_active = true';
+    const queryParams = [];
+
+    if (category) {
+      whereClause += ' AND category = $1';
+      queryParams.push(category);
+    }
+
+    const settingsQuery = `
+      SELECT * FROM assignment_algorithm_settings
+      ${whereClause}
+      ORDER BY category, setting_key
+    `;
+
+    const result = await pool.query(settingsQuery, queryParams);
+
+    res.json({
+      settings: result.rows,
+      total: result.rows.length
+    });
+
+  } catch (error) {
+    console.error('Get assignment config error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update assignment algorithm settings
+app.put('/assignment-config', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('super_admin')) {
+      return res.status(403).json({ error: 'Unauthorized. SuperAdmin access required.' });
+    }
+
+    const { settings } = req.body;
+
+    if (!settings || !Array.isArray(settings)) {
+      return res.status(400).json({ error: 'Settings array is required' });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const updatedSettings = [];
+
+      for (const setting of settings) {
+        const { setting_key, setting_value, description, category } = setting;
+
+        const result = await client.query(
+          `INSERT INTO assignment_algorithm_settings (setting_key, setting_value, description, category, updated_by)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (setting_key)
+           DO UPDATE SET
+             setting_value = EXCLUDED.setting_value,
+             description = EXCLUDED.description,
+             category = EXCLUDED.category,
+             updated_by = EXCLUDED.updated_by,
+             updated_at = NOW()
+           RETURNING *`,
+          [setting_key, JSON.stringify(setting_value), description, category || 'general', req.user.id]
+        );
+
+        updatedSettings.push(result.rows[0]);
+      }
+
+      await client.query('COMMIT');
+
+      res.json({
+        success: true,
+        message: 'Assignment algorithm settings updated successfully',
+        settings: updatedSettings
+      });
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+  } catch (error) {
+    console.error('Update assignment config error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create assignment rule
+app.post('/assignment-rules', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('super_admin')) {
+      return res.status(403).json({ error: 'Unauthorized. SuperAdmin access required.' });
+    }
+
+    const {
+      name,
+      description,
+      rule_type,
+      priority = 0,
+      is_active = true,
+      config
+    } = req.body;
+
+    if (!name || !rule_type || !config) {
+      return res.status(400).json({ error: 'Name, rule_type, and config are required' });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO assignment_rules (name, description, rule_type, priority, is_active, config, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING *`,
+      [name, description, rule_type, priority, is_active, JSON.stringify(config), req.user.id]
+    );
+
+    res.status(201).json({
+      success: true,
+      message: 'Assignment rule created successfully',
+      rule: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error('Create assignment rule error:', error);
+    if (error.code === '23505') {
+      return res.status(400).json({ error: 'Assignment rule with this name already exists' });
+    }
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update assignment rule
+app.put('/assignment-rules/:id', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('super_admin')) {
+      return res.status(403).json({ error: 'Unauthorized. SuperAdmin access required.' });
+    }
+
+    const { id } = req.params;
+    const updates = req.body;
+
+    const updateFields = [];
+    const queryParams = [];
+    let paramIndex = 1;
+
+    const allowedFields = ['name', 'description', 'priority', 'is_active', 'config'];
+
+    allowedFields.forEach(field => {
+      if (updates[field] !== undefined) {
+        if (field === 'config') {
+          updateFields.push(`${field} = $${paramIndex}`);
+          queryParams.push(JSON.stringify(updates[field]));
+        } else {
+          updateFields.push(`${field} = $${paramIndex}`);
+          queryParams.push(updates[field]);
+        }
+        paramIndex++;
+      }
+    });
+
+    if (updateFields.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    updateFields.push(`updated_at = NOW()`);
+    queryParams.push(id);
+
+    const updateQuery = `
+      UPDATE assignment_rules
+      SET ${updateFields.join(', ')}
+      WHERE id = $${paramIndex}
+      RETURNING *
+    `;
+
+    const result = await pool.query(updateQuery, queryParams);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Assignment rule not found' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Assignment rule updated successfully',
+      rule: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error('Update assignment rule error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete assignment rule
+app.delete('/assignment-rules/:id', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('super_admin')) {
+      return res.status(403).json({ error: 'Unauthorized. SuperAdmin access required.' });
+    }
+
+    const { id } = req.params;
+
+    const result = await pool.query(
+      'DELETE FROM assignment_rules WHERE id = $1 RETURNING *',
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Assignment rule not found' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Assignment rule deleted successfully',
+      rule: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error('Delete assignment rule error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Test assignment algorithm
+app.post('/assignment-config/test', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('super_admin')) {
+      return res.status(403).json({ error: 'Unauthorized. SuperAdmin access required.' });
+    }
+
+    const { lead_data, designer_pool } = req.body;
+
+    if (!lead_data) {
+      return res.status(400).json({ error: 'lead_data is required' });
+    }
+
+    // Get active assignment rules
+    const rulesResult = await pool.query(
+      `SELECT * FROM assignment_rules
+       WHERE rule_type = 'lead_assignment' AND is_active = true
+       ORDER BY priority ASC`
+    );
+
+    // Get algorithm settings
+    const settingsResult = await pool.query(
+      `SELECT * FROM assignment_algorithm_settings
+       WHERE category = 'lead_assignment' AND is_active = true`
+    );
+
+    const settings = {};
+    settingsResult.rows.forEach(row => {
+      settings[row.setting_key] = row.setting_value;
+    });
+
+    // Simple scoring algorithm for testing
+    const scores = [];
+    const designers = designer_pool || [];
+
+    designers.forEach(designer => {
+      let score = 0;
+      let breakdown = {};
+
+      // Location matching
+      if (lead_data.city === designer.city) {
+        const locationWeight = settings.location_matching_weight?.weight || 0.4;
+        score += locationWeight * 100;
+        breakdown.location = locationWeight * 100;
+      }
+
+      // Expertise matching (simplified)
+      if (designer.expertise && designer.expertise.includes(lead_data.project_type)) {
+        const expertiseWeight = settings.expertise_matching_weight?.weight || 0.3;
+        score += expertiseWeight * 100;
+        breakdown.expertise = expertiseWeight * 100;
+      }
+
+      // Performance score
+      if (designer.performance_score) {
+        const performanceWeight = settings.performance_matching_weight?.weight || 0.2;
+        score += (designer.performance_score / 5) * performanceWeight * 100;
+        breakdown.performance = (designer.performance_score / 5) * performanceWeight * 100;
+      }
+
+      // Availability
+      const maxLeads = settings.load_balancing_enabled?.max_leads_per_designer || 10;
+      const currentLeads = designer.active_leads || 0;
+      if (currentLeads < maxLeads) {
+        const availabilityWeight = settings.availability_matching_weight?.weight || 0.1;
+        score += ((maxLeads - currentLeads) / maxLeads) * availabilityWeight * 100;
+        breakdown.availability = ((maxLeads - currentLeads) / maxLeads) * availabilityWeight * 100;
+      }
+
+      scores.push({
+        designer_id: designer.id,
+        designer_name: designer.name,
+        total_score: Math.round(score),
+        breakdown
+      });
+    });
+
+    // Sort by score
+    scores.sort((a, b) => b.total_score - a.total_score);
+
+    res.json({
+      success: true,
+      lead_data,
+      algorithm_settings: settings,
+      active_rules: rulesResult.rows,
+      designer_scores: scores,
+      recommended_designer: scores[0] || null,
+      message: 'Assignment algorithm test completed'
+    });
+
+  } catch (error) {
+    console.error('Test assignment algorithm error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ==================== MENU CONFIGURATION ENDPOINTS (CRITICAL FEATURE 3) ====================
+
+// Get all menus with role assignments
+app.get('/menus/all', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('super_admin')) {
+      return res.status(403).json({ error: 'Unauthorized. SuperAdmin access required.' });
+    }
+
+    const menusQuery = `
+      SELECT m.*,
+             ARRAY_AGG(DISTINCT r.name) FILTER (WHERE r.name IS NOT NULL) as assigned_roles
+      FROM menus m
+      LEFT JOIN role_menus rm ON m.id = rm.menu_id
+      LEFT JOIN roles r ON rm.role_id = r.id
+      GROUP BY m.id
+      ORDER BY m.parent_id NULLS FIRST, m.sort_order
+    `;
+
+    const result = await pool.query(menusQuery);
+
+    res.json({
+      menus: result.rows,
+      total: result.rows.length
+    });
+
+  } catch (error) {
+    console.error('Get all menus error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create new menu
+app.post('/menus', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('super_admin')) {
+      return res.status(403).json({ error: 'Unauthorized. SuperAdmin access required.' });
+    }
+
+    const {
+      name,
+      display_name,
+      icon,
+      path,
+      parent_id,
+      sort_order = 0,
+      is_active = true
+    } = req.body;
+
+    if (!name || !display_name) {
+      return res.status(400).json({ error: 'Name and display_name are required' });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO menus (name, display_name, icon, path, parent_id, sort_order, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING *`,
+      [name, display_name, icon, path || null, parent_id || null, sort_order, is_active]
+    );
+
+    res.status(201).json({
+      success: true,
+      message: 'Menu created successfully',
+      menu: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error('Create menu error:', error);
+    if (error.code === '23505') {
+      return res.status(400).json({ error: 'Menu with this name already exists' });
+    }
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update menu
+app.put('/menus/:id', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('super_admin')) {
+      return res.status(403).json({ error: 'Unauthorized. SuperAdmin access required.' });
+    }
+
+    const { id } = req.params;
+    const updates = req.body;
+
+    const updateFields = [];
+    const queryParams = [];
+    let paramIndex = 1;
+
+    const allowedFields = ['display_name', 'icon', 'path', 'parent_id', 'sort_order', 'is_active'];
+
+    allowedFields.forEach(field => {
+      if (updates[field] !== undefined) {
+        updateFields.push(`${field} = $${paramIndex}`);
+        queryParams.push(updates[field]);
+        paramIndex++;
+      }
+    });
+
+    if (updateFields.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    queryParams.push(id);
+
+    const updateQuery = `
+      UPDATE menus
+      SET ${updateFields.join(', ')}
+      WHERE id = $${paramIndex}
+      RETURNING *
+    `;
+
+    const result = await pool.query(updateQuery, queryParams);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Menu not found' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Menu updated successfully',
+      menu: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error('Update menu error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete menu
+app.delete('/menus/:id', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('super_admin')) {
+      return res.status(403).json({ error: 'Unauthorized. SuperAdmin access required.' });
+    }
+
+    const { id } = req.params;
+
+    // Check if menu has children
+    const childrenCheck = await pool.query(
+      'SELECT COUNT(*) as count FROM menus WHERE parent_id = $1',
+      [id]
+    );
+
+    if (parseInt(childrenCheck.rows[0].count) > 0) {
+      return res.status(400).json({ error: 'Cannot delete menu with child items. Delete children first.' });
+    }
+
+    const result = await pool.query(
+      'DELETE FROM menus WHERE id = $1 RETURNING *',
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Menu not found' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Menu deleted successfully',
+      menu: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error('Delete menu error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Assign menu to roles
+app.post('/menus/:id/assign-roles', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('super_admin')) {
+      return res.status(403).json({ error: 'Unauthorized. SuperAdmin access required.' });
+    }
+
+    const { id } = req.params;
+    const { role_ids } = req.body;
+
+    if (!Array.isArray(role_ids)) {
+      return res.status(400).json({ error: 'role_ids must be an array' });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Remove existing role assignments
+      await client.query('DELETE FROM role_menus WHERE menu_id = $1', [id]);
+
+      // Add new role assignments
+      for (const roleId of role_ids) {
+        await client.query(
+          'INSERT INTO role_menus (role_id, menu_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+          [roleId, id]
+        );
+      }
+
+      await client.query('COMMIT');
+
+      res.json({
+        success: true,
+        message: 'Menu roles assigned successfully'
+      });
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+  } catch (error) {
+    console.error('Assign menu roles error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Reorder menus
+app.put('/menus/reorder', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('super_admin')) {
+      return res.status(403).json({ error: 'Unauthorized. SuperAdmin access required.' });
+    }
+
+    const { menu_orders } = req.body;
+
+    if (!Array.isArray(menu_orders)) {
+      return res.status(400).json({ error: 'menu_orders must be an array' });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      for (const item of menu_orders) {
+        await client.query(
+          'UPDATE menus SET sort_order = $1, parent_id = $2 WHERE id = $3',
+          [item.sort_order, item.parent_id || null, item.id]
+        );
+      }
+
+      await client.query('COMMIT');
+
+      res.json({
+        success: true,
+        message: 'Menus reordered successfully'
+      });
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+  } catch (error) {
+    console.error('Reorder menus error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ==================== MATERIALS ENDPOINTS ====================
 
 // Get all materials

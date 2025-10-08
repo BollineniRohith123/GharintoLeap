@@ -35,6 +35,10 @@ import SystemHealthPage from './pages/system/SystemHealthPage';
 import SystemSettingsPage from './pages/system/SystemSettingsPage';
 import AuditLogsPage from './pages/system/AuditLogsPage';
 import RolesPage from './pages/system/RolesPage';
+import CityManagementPage from './pages/system/CityManagementPage';
+import MenuConfigurationPage from './pages/system/MenuConfigurationPage';
+import AssignmentConfigPage from './pages/system/AssignmentConfigPage';
+import CommissionConfigPage from './pages/finance/CommissionConfigPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -273,6 +277,50 @@ function AppInner() {
               <ProtectedRoute permissions={['system.configure']}>
                 <DashboardLayout>
                   <RolesPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/system/cities"
+            element={
+              <ProtectedRoute permissions={['system.admin']}>
+                <DashboardLayout>
+                  <CityManagementPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/system/menus"
+            element={
+              <ProtectedRoute permissions={['system.admin']}>
+                <DashboardLayout>
+                  <MenuConfigurationPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/system/assignment-config"
+            element={
+              <ProtectedRoute permissions={['system.admin']}>
+                <DashboardLayout>
+                  <AssignmentConfigPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/finance/commission-config"
+            element={
+              <ProtectedRoute permissions={['system.admin']}>
+                <DashboardLayout>
+                  <CommissionConfigPage />
                 </DashboardLayout>
               </ProtectedRoute>
             }

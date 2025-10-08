@@ -67,9 +67,9 @@ export default function FinancialManagementPage() {
       const token = localStorage.getItem('auth_token');
       const params = new URLSearchParams();
       if (search) params.append('search', search);
-      if (roleFilter) params.append('role', roleFilter);
-      if (cityFilter) params.append('city', cityFilter);
-      
+      if (roleFilter && roleFilter !== 'all') params.append('role', roleFilter);
+      if (cityFilter && cityFilter !== 'all') params.append('city', cityFilter);
+
       const response = await fetch(`http://localhost:4000/finance/wallets?${params}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -389,13 +389,13 @@ export default function FinancialManagementPage() {
 
           {/* Filters */}
           <div className="flex gap-4">
-            <div className="flex-1">
+            <div className="flex-1 relative">
+              <Search className="h-4 w-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
               <Input
                 placeholder="Search by name or email..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="bg-gray-800 border-gray-600"
-                icon={<Search className="h-4 w-4" />}
+                className="bg-gray-800 border-gray-600 pl-10"
               />
             </div>
             <Select value={roleFilter} onValueChange={setRoleFilter}>
@@ -403,7 +403,7 @@ export default function FinancialManagementPage() {
                 <SelectValue placeholder="Filter by role" />
               </SelectTrigger>
               <SelectContent className="bg-gray-800 border-gray-600">
-                <SelectItem value="">All Roles</SelectItem>
+                <SelectItem value="all">All Roles</SelectItem>
                 <SelectItem value="customer">Customer</SelectItem>
                 <SelectItem value="vendor">Vendor</SelectItem>
                 <SelectItem value="interior_designer">Interior Designer</SelectItem>
@@ -416,7 +416,7 @@ export default function FinancialManagementPage() {
                 <SelectValue placeholder="Filter by city" />
               </SelectTrigger>
               <SelectContent className="bg-gray-800 border-gray-600">
-                <SelectItem value="">All Cities</SelectItem>
+                <SelectItem value="all">All Cities</SelectItem>
                 <SelectItem value="Mumbai">Mumbai</SelectItem>
                 <SelectItem value="Delhi">Delhi</SelectItem>
                 <SelectItem value="Bangalore">Bangalore</SelectItem>
